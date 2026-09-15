@@ -1,3 +1,11 @@
 __pycache__/
 .git/
 ae/
+
+# IR-LPR dataset downloads (multi-GB, fetched via scripts/download_ir_lpr.py)
+data/
+
+# training runs / checkpoints produced locally
+runs/
+*.venv/
+venv/

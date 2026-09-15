@@ -32,6 +32,25 @@ recognition pipeline, running on CPU/consumer GPU.
   multi-gigabyte files hosted on Google Drive; see
   `dataset/IR-LPR/README.md` for download links.
 
+## Getting the training data (run locally, not in a cloud sandbox)
+
+The IR-LPR "Car Image" set (full car photos + plate bounding boxes) is
+what we need to retrain plate detection. It's large (train ~8.3GB, val
+~1.2GB, test ~2.3GB) and hosted on Google Drive, and training needs your
+GPU — so this step runs on your own machine, not in a remote session.
+
+```bash
+pip install -r requirements.txt
+python scripts/download_ir_lpr.py          # downloads + extracts train and val
+```
+
+Then, since the exact annotation format inside the IR-LPR zip isn't
+documented anywhere public, inspect `data/IR-LPR/car-image/train/` once
+it's extracted and fill in `parse_annotation_file()` in
+`scripts/convert_annotations_to_yolo.py` before running it — see that
+script's docstring for details. It converts the annotations to the YOLO
+label format Ultralytics expects and writes `data/IR-LPR/car-image/data.yaml`.
+
 ## Licensing note
 
 - The upstream `yolo11-persian-license-plate-recognition` codebase does
