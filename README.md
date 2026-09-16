@@ -44,12 +44,30 @@ pip install -r requirements.txt
 python scripts/download_ir_lpr.py          # downloads + extracts train and val
 ```
 
-Then, since the exact annotation format inside the IR-LPR zip isn't
-documented anywhere public, inspect `data/IR-LPR/car-image/train/` once
-it's extracted and fill in `parse_annotation_file()` in
-`scripts/convert_annotations_to_yolo.py` before running it — see that
-script's docstring for details. It converts the annotations to the YOLO
-label format Ultralytics expects and writes `data/IR-LPR/car-image/data.yaml`.
+Then convert the annotations (Pascal-VOC-style XML, one whole-plate box
+per image labeled "کل ناحیه پلاک") to YOLO label format:
+
+```bash
+python scripts/convert_annotations_to_yolo.py
+```
+
+This links images into `data/IR-LPR/car-image/{train,val}/images/`,
+writes matching YOLO `.txt` labels under `.../labels/`, and writes
+`data/IR-LPR/car-image/data.yaml` for Ultralytics. (Images are matched
+to annotations by the *xml file's own name*, not the `<filename>` tag
+inside it, which is stale — see the script's docstring.)
+
+## Training
+
+```bash
+python scripts/train_plate_detector.py
+```
+
+Fine-tunes YOLO11n on the converted dataset. Defaults are picked for a
+6GB-VRAM laptop GPU (auto batch-size selection, mixed precision).
+Results land in `runs/detect/ir_lpr_plate_detector/` (gitignored —
+`weights/best.pt` is the model to use afterward). See
+`--help` for options (epochs, image size, a bigger `yolo11s.pt` base, etc).
 
 ## Licensing note
 
@@ -64,5 +82,12 @@ label format Ultralytics expects and writes `data/IR-LPR/car-image/data.yaml`.
 
 ## Status
 
-🚧 Just scaffolded — next step is downloading the IR-LPR dataset and
-adapting the training notebooks to it.
+- [x] Base codebase + dataset reference scaffolded
+- [x] Dataset download script
+- [x] Annotation conversion to YOLO format (verified: 14671/14671 train,
+      2120/2120 val converted on a real download)
+- [x] Training script
+- [ ] Actually run training and evaluate against the original
+      `yolo11_anpr_ghd.pt` weights
+- [ ] Retrain the character OCR step (digit extraction / classifier) on
+      IR-LPR's per-character boxes — not started
