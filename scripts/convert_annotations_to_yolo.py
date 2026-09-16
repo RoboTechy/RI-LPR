@@ -25,6 +25,16 @@ single-class plate-detection dataset. The per-character boxes are also
 in the XML and could be used later to build a character-detection
 dataset for retraining the OCR step, but that's out of scope here.
 
+IMPORTANT: the <filename> tag is STALE - it holds the image's original
+name from before the dataset was reorganized (e.g. "17440.jpg"), not
+its actual name on disk. The actual image is instead named after the
+annotation file itself: "day_06127.xml" pairs with "day_06127.jpg",
+not with whatever its <filename> tag says. Confirmed via
+scripts/diagnose_conversion.py against a real download (14671 xml
+files, 14671 images, but the <filename> tag matched on-disk images for
+only 3 out of 5000 sampled). So images are matched by the xml file's
+own stem, with the internal <filename> kept only as a fallback.
+
 Usage (after scripts/download_ir_lpr.py has extracted train/ and val/):
     python scripts/convert_annotations_to_yolo.py
 """
@@ -85,20 +95,24 @@ def convert_split(split_dir: Path) -> None:
     images_out.mkdir(exist_ok=True)
     labels_out.mkdir(exist_ok=True)
 
-    # Index every image once by filename (annotations live in a different
-    # folder than images inside the IR-LPR zip, e.g. "true_all_images/").
-    image_index = {}
+    # Index every image once, by filename AND by stem (annotations live in
+    # a different folder than images inside the IR-LPR zip, e.g.
+    # "true_all_images/", and the <filename> tag inside the xml is stale -
+    # see module docstring - so we mainly match by the xml file's own stem).
+    image_by_name = {}
+    image_by_stem = {}
     for path in split_dir.rglob("*"):
         if images_out in path.parents:
             continue
         if path.suffix.lower() in IMAGE_EXTENSIONS:
-            image_index[path.name] = path
+            image_by_name[path.name] = path
+            image_by_stem.setdefault(path.stem, path)
 
     xml_files = [p for p in split_dir.rglob("*.xml")]
     converted = skipped = 0
     for xml_path in xml_files:
         image_filename, boxes = parse_annotation_file(xml_path)
-        img_path = image_index.get(image_filename)
+        img_path = image_by_stem.get(xml_path.stem) or image_by_name.get(image_filename)
         if img_path is None or not boxes:
             skipped += 1
             continue
@@ -106,11 +120,11 @@ def convert_split(split_dir: Path) -> None:
         with Image.open(img_path) as im:
             width, height = im.size
 
-        link_path = images_out / image_filename
+        link_path = images_out / img_path.name
         if not link_path.exists():
             link_path.symlink_to(img_path.resolve())
 
-        label_path = labels_out / (Path(image_filename).stem + ".txt")
+        label_path = labels_out / (img_path.stem + ".txt")
         lines = [to_yolo_line(0, box, width, height) for box in boxes]
         label_path.write_text("\n".join(lines) + "\n")
         converted += 1
