@@ -3,3 +3,4 @@ opencv-python
 gdown
 torch
 torchvision
+Pillow
