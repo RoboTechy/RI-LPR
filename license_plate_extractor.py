@@ -3,20 +3,24 @@ from pathlib import Path
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+import torch
 from ultralytics import YOLO
 
-def filter_boxes_by_class(boxes, cls_id):
+def filter_boxes_by_class(boxes, cls_ids):
     """
-    Filters the bounding boxes based on the specified class ID e.g. cls_id=2 for cars.
+    Filters the bounding boxes based on the specified class ID(s), e.g.
+    cls_ids=2 for cars, or cls_ids=(2, 7) for cars and trucks (COCO ids).
 
     Args:
         boxes: A YOLO boxes object.
-        cls_id: The class ID to filter the boxes by.
+        cls_ids: A single class ID, or an iterable of class IDs, to keep.
 
     Returns:
-        A list of xyxy tensors corresponding to the specified class ID.
+        A list of xyxy tensors corresponding to the specified class ID(s).
     """
-    mask = boxes.cls == cls_id
+    if isinstance(cls_ids, (int, float)):
+        cls_ids = [cls_ids]
+    mask = torch.isin(boxes.cls, torch.tensor(cls_ids, device=boxes.cls.device))
     filtered_xyxy = boxes.xyxy[mask]
     return filtered_xyxy.cpu().tolist()
 
@@ -94,22 +98,26 @@ def show_resized_images(resized_imgs, cropped_license_image):
 DEFAULT_PLATE_MODEL_PATH = "models/ir_lpr_plate_detector.pt"
 FALLBACK_PLATE_MODEL_PATH = "yolo11_anpr_ghd.pt"
 
+# COCO class ids this pipeline looks for as "the vehicle" in a photo.
+# car=2, truck=7. Not bus(5)/motorcycle(3) - not needed for this project.
+VEHICLE_CLASS_IDS = (2, 7)
+
 
 def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
                            plate_model_path=DEFAULT_PLATE_MODEL_PATH):
-    """Detect the car, then the plate within it, and return the cropped plate image (RGB).
+    """Detect the car/truck, then the plate within it, and return the cropped plate image (RGB).
 
     Split out of extract_digits() so other pipelines (e.g. a character
     detector that runs directly on the plate crop) can reuse this first
     half without the segmentation/classification steps that follow it.
     """
-    # find the biggest car in the image
+    # find the biggest car/truck in the image
     yolo_model = YOLO("yolo11n.pt")
     car_results = yolo_model(image_name)
-    car_boxes = filter_boxes_by_class(car_results[0].boxes, 2) # 2: car id
+    car_boxes = filter_boxes_by_class(car_results[0].boxes, VEHICLE_CLASS_IDS)
 
     if len(car_boxes) == 0:
-        raise ValueError("No cars detected in the image.")
+        raise ValueError("No cars or trucks detected in the image.")
 
     # sort by area
     sorted_car_boxes = sorted(car_boxes, key=lambda x: abs(x[2] - x[0]) * abs(x[3] - x[1]), reverse=True)
@@ -150,6 +158,8 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
         plate_model_path = FALLBACK_PLATE_MODEL_PATH
     model = YOLO(plate_model_path)
     results = model(cropped_car_image)
+    if len(results[0].boxes) == 0:
+        raise ValueError("No license plate detected in the cropped vehicle image.")
     license_box = results[0].boxes[0].xyxy[0].cpu().numpy()
 
     img_drawn = cv2.rectangle(cropped_car_image.copy(), (int(license_box[0]), int(license_box[1])), (int(license_box[2]), int(license_box[3])), (255, 255, 0), 3)
