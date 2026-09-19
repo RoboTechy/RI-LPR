@@ -95,8 +95,14 @@ DEFAULT_PLATE_MODEL_PATH = "models/ir_lpr_plate_detector.pt"
 FALLBACK_PLATE_MODEL_PATH = "yolo11_anpr_ghd.pt"
 
 
-def extract_digits(image_name, min_area=0.005, max_area=0.05, debug=False, show=False, prefix="image",
-                    plate_model_path=DEFAULT_PLATE_MODEL_PATH):
+def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
+                           plate_model_path=DEFAULT_PLATE_MODEL_PATH):
+    """Detect the car, then the plate within it, and return the cropped plate image (RGB).
+
+    Split out of extract_digits() so other pipelines (e.g. a character
+    detector that runs directly on the plate crop) can reuse this first
+    half without the segmentation/classification steps that follow it.
+    """
     # find the biggest car in the image
     yolo_model = YOLO("yolo11n.pt")
     car_results = yolo_model(image_name)
@@ -156,7 +162,7 @@ def extract_digits(image_name, min_area=0.005, max_area=0.05, debug=False, show=
         plt.savefig(f"{prefix}_license_plate_bbox.png", bbox_inches='tight')
         if show:
             plt.show()
-    
+
     # Crop the image based on the bounding box
     cropped_license_image = cropped_car_image[int(license_box[1]):int(license_box[3]), int(license_box[0]):int(license_box[2])]
 
@@ -168,6 +174,14 @@ def extract_digits(image_name, min_area=0.005, max_area=0.05, debug=False, show=
         plt.savefig(f"{prefix}_cropped_license_plate_image.png", bbox_inches='tight')
         if show:
             plt.show()
+
+    return cropped_license_image
+
+
+def extract_digits(image_name, min_area=0.005, max_area=0.05, debug=False, show=False, prefix="image",
+                    plate_model_path=DEFAULT_PLATE_MODEL_PATH):
+    cropped_license_image = detect_and_crop_plate(
+        image_name, debug=debug, show=show, prefix=prefix, plate_model_path=plate_model_path)
 
     # straighten the license plate image
     straight_license_plate_img = straighten_skewed_rectangle(cropped_license_image)

@@ -100,6 +100,37 @@ Try the full pipeline (detect → segment → classify) on a photo:
 python scripts/recognize_plate.py car_a.jpg
 ```
 
+Result: 94.2% per-character val accuracy (CharCNN, up from the flat
+MLP's 91.5%), plus a plate-layout constraint in `recognize_plate.py`
+(Iranian plates are 2 digits, 1 letter, 3 digits, 2 digits, so the
+letter position can't be misread as a digit or vice versa when all 8
+characters are found). But per-character accuracy alone caps
+full-plate accuracy hard: 0.942**8 ≈ 61%. Tested end-to-end on a real
+photo and the *segmentation* step - not classification - turned out to
+be the bigger problem: it only found 7 of 8 characters, so the layout
+constraint didn't even get to run. See the next section.
+
+## Replacing segmentation with a character detector
+
+The classical segmentation in `license_plate_extractor.py`
+(CLAHE + Otsu threshold + connected components) regularly drops or
+merges characters on real photos - it's the actual bottleneck, more
+than classifier accuracy. IR-LPR's per-character boxes let us skip it
+entirely: train a second, multi-class YOLO model that both locates
+*and* identifies every character on the (already cropped) plate in one
+pass.
+
+```bash
+python scripts/convert_char_detection_dataset.py   # crops the plate per annotation, writes YOLO multi-class labels
+python scripts/train_char_detector.py              # trains yolo11n on it (100 epochs default - harder task, more classes)
+python scripts/recognize_plate_v2.py car_a.jpg      # detect -> crop plate -> detect+read characters directly
+```
+
+`license_plate_extractor.py` was refactored to expose
+`detect_and_crop_plate()` (car detection -> plate detection -> crop),
+reused by both the old `extract_digits()` pipeline and this new one, so
+neither duplicates that logic.
+
 ## Licensing note
 
 - The upstream `yolo11-persian-license-plate-recognition` codebase does
@@ -122,6 +153,14 @@ python scripts/recognize_plate.py car_a.jpg
       mAP50=0.981, mAP50-95=0.775 (`models/ir_lpr_plate_detector.pt`)
 - [x] End-to-end pipeline tested on a real photo (found and fixed an
       OpenCV 5.x compatibility bug in `straighten_skewed_rectangle`)
-- [ ] Character OCR retraining scripts written
-      (`convert_char_annotations.py`, `train_char_classifier.py`,
-      `recognize_plate.py`) — not yet run
+- [x] Character classifier retrained (CharCNN): 94.2% per-character val
+      accuracy, up from FCModel's 91.5% — still not enough alone
+      (0.942**8 ≈ 61% full-plate), plus a plate-layout constraint added
+      to rule out digit/letter confusion by position
+- [x] End-to-end test of that pipeline on a real photo: classifier
+      wasn't the bottleneck, segmentation was (only found 7/8 characters)
+- [ ] Character-detector scripts written
+      (`convert_char_detection_dataset.py`, `train_char_detector.py`,
+      `recognize_plate_v2.py`) — replaces classical segmentation with a
+      multi-class YOLO that detects+reads characters directly; not yet
+      run
