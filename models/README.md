@@ -53,9 +53,18 @@ classification *and* segmentation together.
 every character on an already-cropped plate in one pass (class names
 are the characters themselves), via
 `scripts/convert_char_detection_dataset.py` +
-`scripts/train_char_detector.py`. Not yet trained; after running that
+`scripts/train_char_detector.py` (100 epochs). After running that
 script locally, copy the checkpoint here:
 
 ```bash
 cp runs/detect/ir_lpr_char_detector/weights/best.pt models/ir_lpr_char_detector.pt
 ```
+
+**Result: found all 8/8 characters, correctly, on all 4 of the repo's
+sample photos (`car_a.jpg`-`car_d.jpg`)** via `scripts/recognize_plate_v2.py`
+- a clean sweep, and every plate's letter landed in the correct
+position (index 2) with no digit/letter type mismatches, entirely on
+its own (no manual layout correction needed). This is the pipeline to
+use going forward; `ir_lpr_char_classifier.pt` (classification only,
+paired with classical segmentation) is kept for reference but
+segmentation was its real bottleneck, not classification accuracy.

@@ -159,8 +159,20 @@ neither duplicates that logic.
       to rule out digit/letter confusion by position
 - [x] End-to-end test of that pipeline on a real photo: classifier
       wasn't the bottleneck, segmentation was (only found 7/8 characters)
-- [ ] Character-detector scripts written
-      (`convert_char_detection_dataset.py`, `train_char_detector.py`,
-      `recognize_plate_v2.py`) — replaces classical segmentation with a
-      multi-class YOLO that detects+reads characters directly; not yet
-      run
+- [x] Character-detector trained and tested: **8/8 characters read
+      correctly on all 4 of the repo's sample photos**
+      (`car_a.jpg`-`car_d.jpg`), letter always in the right position, no
+      manual corrections needed (`models/ir_lpr_char_detector.pt`,
+      `scripts/recognize_plate_v2.py`) — this is the recommended pipeline
+      going forward, superseding the classify-then-segment approach
+
+## Next up
+
+- [ ] Test on more/harder photos (angles, lighting, dirty plates) than
+      the 4 samples shipped with the repo — 4/4 is promising but a small
+      sample
+- [ ] Production prep for the CPU-only 20-core server: export both YOLO
+      models (plate detector + character detector) to ONNX for faster
+      CPU inference (`model.export(format="onnx")`)
+- [ ] Resolve the licensing question (see "Licensing note" above)
+      before any public release
