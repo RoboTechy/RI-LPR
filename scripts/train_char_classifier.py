@@ -26,8 +26,9 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+from PIL import Image
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -35,12 +36,41 @@ from image_classifier import FCModel  # noqa: E402
 
 DATA_DIR = REPO_ROOT / "data" / "IR-LPR" / "car-image"
 MODELS_DIR = REPO_ROOT / "models"
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg")
 
 TRANSFORM = transforms.Compose([
     transforms.Grayscale(),
     transforms.Resize((28, 28)),
     transforms.ToTensor(),
 ])
+
+
+class CharFolderDataset(Dataset):
+    """Like torchvision's ImageFolder, but classes can have zero samples in
+    a given split (ImageFolder hard-errors on an empty class folder, which
+    real plate-character classes hit - some letters are rare enough that a
+    train/val split can leave one side without any examples of them)."""
+
+    def __init__(self, root: Path, classes: list, class_to_idx: dict, transform):
+        self.transform = transform
+        self.samples = []
+        for cls in classes:
+            cls_dir = root / cls
+            if not cls_dir.is_dir():
+                continue
+            for path in cls_dir.iterdir():
+                if path.suffix.lower() in IMAGE_EXTENSIONS:
+                    self.samples.append((path, class_to_idx[cls]))
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        path, label = self.samples[idx]
+        image = Image.open(path)
+        if self.transform:
+            image = self.transform(image)
+        return image, label
 
 
 def evaluate(model, loader, device) -> float:
@@ -70,14 +100,24 @@ def main() -> None:
             f"scripts/convert_char_annotations.py first."
         )
 
-    train_dataset = datasets.ImageFolder(root=str(train_dir), transform=TRANSFORM)
-    val_dataset = datasets.ImageFolder(root=str(val_dir), transform=TRANSFORM)
-    if train_dataset.classes != val_dataset.classes:
-        raise SystemExit(
-            f"train/val class sets differ: "
-            f"{set(train_dataset.classes) ^ set(val_dataset.classes)}"
-        )
-    print(f"{len(train_dataset.classes)} classes: {train_dataset.classes}")
+    # Some plate characters are rare enough that a random train/val split can
+    # leave a class with zero examples on one side. Build one shared class
+    # list (and index mapping) from both splits combined, so train and val
+    # always agree on which index means which character - a class missing
+    # from train just won't be learned; one missing from val just won't show
+    # up in val_acc.
+    train_classes = {p.name for p in train_dir.iterdir() if p.is_dir()}
+    val_classes = {p.name for p in val_dir.iterdir() if p.is_dir()}
+    for missing in sorted(val_classes - train_classes):
+        print(f"warning: class {missing!r} has no train images, only val")
+    for missing in sorted(train_classes - val_classes):
+        print(f"warning: class {missing!r} has no val images, only train")
+    classes = sorted(train_classes | val_classes)
+    class_to_idx = {cls: i for i, cls in enumerate(classes)}
+
+    train_dataset = CharFolderDataset(train_dir, classes, class_to_idx, TRANSFORM)
+    val_dataset = CharFolderDataset(val_dir, classes, class_to_idx, TRANSFORM)
+    print(f"{len(classes)} classes: {classes}")
     print(f"{len(train_dataset)} train images, {len(val_dataset)} val images")
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
@@ -85,7 +125,7 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on {device}")
-    model = FCModel(len(train_dataset.classes)).to(device)
+    model = FCModel(len(classes)).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
 
@@ -108,7 +148,7 @@ def main() -> None:
     weights_path = MODELS_DIR / "ir_lpr_char_classifier.pt"
     classes_path = MODELS_DIR / "ir_lpr_char_classifier_classes.json"
     torch.save(model.state_dict(), weights_path)
-    classes_path.write_text(json.dumps(train_dataset.classes, ensure_ascii=False, indent=2))
+    classes_path.write_text(json.dumps(classes, ensure_ascii=False, indent=2))
     print(f"Saved {weights_path} and {classes_path}")
 
 
