@@ -179,12 +179,31 @@ neither duplicates that logic.
       training data needed since a plate's rectangular shape doesn't
       depend on country or vehicle type
 
+- [x] Tested end-to-end on 10 real Iranian truck photos (public dataset,
+      416x416 Roboflow exports - low-res, a pessimistic proxy for a real
+      factory-gate camera). Tried a larger fallback plate-detector variant
+      (`yolo-v9-s-608` vs default `yolo-v9-t-384`) hoping for better
+      small-object precision - made no real difference, sometimes
+      slightly worse, so kept the faster default. Found 2/10 trucks were
+      being misclassified as "bus" by the generic vehicle detector and
+      dropped before plate detection ever ran; added bus(5) to
+      `VEHICLE_CLASS_IDS` (harmless for this project - it only cares
+      about reading plates, not vehicle type) - fixed one of those two
+      outright (clean 8/8) and got the other from total failure to a
+      partial read, plus fixed a car test image as a bonus (5/8 → 8/8).
+      **Net: 4/10 trucks now read a structurally-plausible full plate**
+      (up from 3/10), still well short of car-level (~90%+) reliability -
+      remaining failures trace to genuinely low source-photo resolution
+      and the lack of Iran-specific truck training data for either plate
+      detector, not something fixable in code alone
+
 ## Next up
 
-- [ ] Re-test the truck path on a higher-resolution photo - the one
-      available for testing was 416x416 (a Roboflow export), too low-res
-      for the character detector to read reliably; the fallback
-      *detection* worked, but end-to-end truck accuracy is still unverified
+- [ ] Truck accuracy is still the weak point (4/10 on a low-res test
+      set) - either find/build an Iran-specific truck-plate dataset to
+      fine-tune on, or re-test once real (better-quality) factory-gate
+      camera photos are available - the current test set may
+      underestimate real-world performance
 - [ ] Production prep for the CPU-only 20-core server: export both YOLO
       models (plate detector + character detector) to ONNX for faster
       CPU inference (`model.export(format="onnx")`)
