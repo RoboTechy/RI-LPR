@@ -68,3 +68,31 @@ its own (no manual layout correction needed). This is the pipeline to
 use going forward; `ir_lpr_char_classifier.pt` (classification only,
 paired with classical segmentation) is kept for reference but
 segmentation was its real bottleneck, not classification accuracy.
+
+On more varied real photos (see "Vehicle detection" below), this
+character detector read plates correctly on white (car) plates without
+any changes; a quick test on a (low-resolution) yellow truck-plate
+photo was inconclusive due to image quality, not plate color - the
+model reads dark character shapes regardless of background color, so
+no separate retraining is expected to be needed for yellow plates.
+
+## Vehicle detection
+
+`license_plate_extractor.detect_and_crop_plate()` first finds "the
+vehicle" with a stock `yolo11n.pt` (COCO-pretrained, not fine-tuned) and
+looks for COCO classes `car` (2) and `truck` (7) - not bus/motorcycle,
+not needed for this project. It originally only looked for `car`, and a
+real truck photo hit exactly that: correctly classified as "truck" by
+the stock detector, then dropped because the class filter only kept
+class 2.
+
+Plate detection (which happens next, inside the vehicle crop) then hit
+a second, different problem on that same truck: `ir_lpr_plate_detector.pt`
+was fine-tuned only on IR-LPR's passenger-car photos and found nothing.
+Fix: `_detect_plate_box()` in `license_plate_extractor.py` falls back to
+[`open-image-models`](https://github.com/ankandrew/open-image-models)'s
+general-purpose, non-Iran-specific plate detector
+(`yolo-v9-t-384-license-plate-end2end`) when the IR-LPR-trained one finds
+nothing. A plate is roughly the same rectangular shape on any vehicle in
+any country, so this generalized to a truck without needing new
+training data - confirmed on a real (if low-resolution) truck photo.

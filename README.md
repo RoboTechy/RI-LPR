@@ -166,11 +166,25 @@ neither duplicates that logic.
       `scripts/recognize_plate_v2.py`) — this is the recommended pipeline
       going forward, superseding the classify-then-segment approach
 
+- [x] Tested on 6 more real photos from public Iranian vehicle datasets
+      (not IR-LPR, not the repo's own samples): 4/5 cars read correctly
+      end-to-end; found and fixed two real bugs along the way -
+      `filter_boxes_by_class()` only recognized COCO class "car", so
+      every truck photo was rejected before plate detection even ran;
+      and once fixed, `ir_lpr_plate_detector.pt` (trained only on
+      passenger cars) couldn't find a truck's plate either. Added a
+      general-purpose (non-Iran-specific) plate-detection fallback
+      (`open-image-models`) for vehicle types the fine-tuned detector
+      never saw - confirmed working on a real truck photo, no new
+      training data needed since a plate's rectangular shape doesn't
+      depend on country or vehicle type
+
 ## Next up
 
-- [ ] Test on more/harder photos (angles, lighting, dirty plates) than
-      the 4 samples shipped with the repo — 4/4 is promising but a small
-      sample
+- [ ] Re-test the truck path on a higher-resolution photo - the one
+      available for testing was 416x416 (a Roboflow export), too low-res
+      for the character detector to read reliably; the fallback
+      *detection* worked, but end-to-end truck accuracy is still unverified
 - [ ] Production prep for the CPU-only 20-core server: export both YOLO
       models (plate detector + character detector) to ONNX for faster
       CPU inference (`model.export(format="onnx")`)

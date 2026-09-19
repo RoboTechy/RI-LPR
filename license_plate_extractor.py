@@ -102,6 +102,42 @@ FALLBACK_PLATE_MODEL_PATH = "yolo11_anpr_ghd.pt"
 # car=2, truck=7. Not bus(5)/motorcycle(3) - not needed for this project.
 VEHICLE_CLASS_IDS = (2, 7)
 
+# General-purpose (not Iran-specific) plate detector, used only as a
+# fallback - see _detect_plate_box(). A rectangular plate looks roughly
+# the same shape on any vehicle/country, so this generalizes to vehicle
+# types ir_lpr_plate_detector.pt never saw (e.g. trucks - IR-LPR training
+# data was passenger cars only) without needing new training data.
+GENERAL_PLATE_MODEL_NAME = "yolo-v9-t-384-license-plate-end2end"
+_general_plate_detector = None
+
+
+def _get_general_plate_detector():
+    global _general_plate_detector
+    if _general_plate_detector is None:
+        from open_image_models.detection.factory import create_detector
+        _general_plate_detector = create_detector(GENERAL_PLATE_MODEL_NAME)
+    return _general_plate_detector
+
+
+def _detect_plate_box(cropped_vehicle_image, plate_model_path):
+    """Return the plate's (xmin, ymin, xmax, ymax) in cropped_vehicle_image, or None if not found."""
+    if not Path(plate_model_path).exists():
+        print(f"{plate_model_path} not found, falling back to {FALLBACK_PLATE_MODEL_PATH}")
+        plate_model_path = FALLBACK_PLATE_MODEL_PATH
+    model = YOLO(plate_model_path)
+    results = model(cropped_vehicle_image)
+    if len(results[0].boxes) > 0:
+        return results[0].boxes[0].xyxy[0].cpu().numpy()
+
+    print(f"{plate_model_path} found no plate, trying general-purpose fallback detector "
+          f"(handles vehicle types it wasn't trained on, e.g. trucks)")
+    detections = _get_general_plate_detector().predict(cropped_vehicle_image)
+    if not detections:
+        return None
+    best = max(detections, key=lambda d: d.confidence)
+    box = best.bounding_box
+    return np.array([box.x1, box.y1, box.x2, box.y2], dtype=float)
+
 
 def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
                            plate_model_path=DEFAULT_PLATE_MODEL_PATH):
@@ -152,15 +188,11 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
 
     # detect the license plate in the cropped car image
     # (retrained on the IR-LPR dataset - see models/README.md; falls back
-    # to the original small-dataset weights if that model isn't present)
-    if not Path(plate_model_path).exists():
-        print(f"{plate_model_path} not found, falling back to {FALLBACK_PLATE_MODEL_PATH}")
-        plate_model_path = FALLBACK_PLATE_MODEL_PATH
-    model = YOLO(plate_model_path)
-    results = model(cropped_car_image)
-    if len(results[0].boxes) == 0:
+    # to the original small-dataset weights if that model isn't present,
+    # then to a general-purpose detector if even that finds nothing)
+    license_box = _detect_plate_box(cropped_car_image, plate_model_path)
+    if license_box is None:
         raise ValueError("No license plate detected in the cropped vehicle image.")
-    license_box = results[0].boxes[0].xyxy[0].cpu().numpy()
 
     img_drawn = cv2.rectangle(cropped_car_image.copy(), (int(license_box[0]), int(license_box[1])), (int(license_box[2]), int(license_box[3])), (255, 255, 0), 3)
 
