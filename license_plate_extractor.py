@@ -99,8 +99,12 @@ DEFAULT_PLATE_MODEL_PATH = "models/ir_lpr_plate_detector.pt"
 FALLBACK_PLATE_MODEL_PATH = "yolo11_anpr_ghd.pt"
 
 # COCO class ids this pipeline looks for as "the vehicle" in a photo.
-# car=2, truck=7. Not bus(5)/motorcycle(3) - not needed for this project.
-VEHICLE_CLASS_IDS = (2, 7)
+# car=2, truck=7, bus=5. Not motorcycle(3) - not needed for this project.
+# bus is included because the generic detector misclassifies some
+# flat-fronted cab-over cargo trucks as "bus" (confirmed on real photos) -
+# this project only cares about reading plates, not the vehicle type, so
+# a genuine bus getting through here too is harmless.
+VEHICLE_CLASS_IDS = (2, 5, 7)
 
 # General-purpose (not Iran-specific) plate detector, used only as a
 # fallback - see _detect_plate_box(). A rectangular plate looks roughly
