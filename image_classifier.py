@@ -22,20 +22,42 @@ class FCModel(nn.Module):
         return x
 
 
+# Small CNN - unlike FCModel, keeps the 2D spatial structure of the
+# character instead of flattening it immediately. Still tiny (a few
+# hundred K params), so CPU inference stays effectively free even on a
+# server with no GPU.
+class CharCNN(nn.Module):
+    def __init__(self, num_classes):
+        super(CharCNN, self).__init__()
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.fc1 = nn.Linear(32 * 7 * 7, 128)
+        self.fc2 = nn.Linear(128, num_classes)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))  # 28x28 -> 14x14
+        x = self.pool(F.relu(self.conv2(x)))  # 14x14 -> 7x7
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+
 # ImageClassifier class encapsulating model loading, preprocessing, and prediction
 class ImageClassifier:
-    def __init__(self, weights_path, class_names):
+    def __init__(self, weights_path, class_names, model_class=FCModel):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.class_names = class_names
-        self.model = self._load_model(weights_path)
+        self.model = self._load_model(weights_path, model_class)
         self.model.to(self.device)
         self.model.eval()
         self.transform = self._get_transform()
 
-    def _load_model(self, weights_path):
+    def _load_model(self, weights_path, model_class):
         """Load the trained model with weights."""
         num_classes = len(self.class_names)
-        model = FCModel(num_classes)
+        model = model_class(num_classes)
         model.load_state_dict(torch.load(weights_path, map_location=self.device))
         print("Model loaded successfully.")
         return model

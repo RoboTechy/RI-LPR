@@ -14,7 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from image_classifier import ImageClassifier  # noqa: E402
+from image_classifier import CharCNN, ImageClassifier  # noqa: E402
 from license_plate_extractor import extract_digits  # noqa: E402
 
 MODELS_DIR = REPO_ROOT / "models"
@@ -35,7 +35,7 @@ def main() -> None:
             f"scripts/train_char_classifier.py first."
         )
     class_names = json.loads(classes_path.read_text())
-    classifier = ImageClassifier(str(weights_path), class_names)
+    classifier = ImageClassifier(str(weights_path), class_names, model_class=CharCNN)
 
     digits, _ = extract_digits(args.image, debug=args.debug, show=False, prefix=Path(args.image).stem)
 

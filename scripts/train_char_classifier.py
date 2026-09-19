@@ -1,9 +1,16 @@
 """
-Retrain the plate-character classifier (image_classifier.py's FCModel)
+Retrain the plate-character classifier (image_classifier.py's CharCNN)
 on the character crops produced by scripts/convert_char_annotations.py.
 
-This is a tiny MLP on 28x28 grayscale images, so it trains fast even on
-CPU. Saves:
+A first run with the original FCModel (a flat MLP) plateaued around
+91-92% per-character val accuracy - not nearly enough for reliable full
+plates, since errors compound across all ~8 characters
+(0.915**8 ~= 49% chance of reading an entire plate correctly). Flattening
+the image throws away spatial structure a small CNN can use instead, so
+this trains CharCNN, plus light rotation/translation augmentation (real
+segmented crops from extract_digits() are rarely perfectly centered).
+Still tiny - a few hundred K params - so CPU inference stays effectively
+free even without a GPU. Saves:
     models/ir_lpr_char_classifier.pt          - state_dict
     models/ir_lpr_char_classifier_classes.json - ordered class list
                                                   (index -> character),
@@ -32,13 +39,22 @@ from torchvision import transforms
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-from image_classifier import FCModel  # noqa: E402
+from image_classifier import CharCNN  # noqa: E402
 
 DATA_DIR = REPO_ROOT / "data" / "IR-LPR" / "car-image"
 MODELS_DIR = REPO_ROOT / "models"
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg")
 
-TRANSFORM = transforms.Compose([
+# Real crops from extract_digits() are rarely perfectly centered/aligned,
+# so lightly augment the train split; val stays unaugmented for an honest
+# accuracy read.
+TRAIN_TRANSFORM = transforms.Compose([
+    transforms.Grayscale(),
+    transforms.Resize((28, 28)),
+    transforms.RandomAffine(degrees=10, translate=(0.1, 0.1)),
+    transforms.ToTensor(),
+])
+VAL_TRANSFORM = transforms.Compose([
     transforms.Grayscale(),
     transforms.Resize((28, 28)),
     transforms.ToTensor(),
@@ -115,8 +131,8 @@ def main() -> None:
     classes = sorted(train_classes | val_classes)
     class_to_idx = {cls: i for i, cls in enumerate(classes)}
 
-    train_dataset = CharFolderDataset(train_dir, classes, class_to_idx, TRANSFORM)
-    val_dataset = CharFolderDataset(val_dir, classes, class_to_idx, TRANSFORM)
+    train_dataset = CharFolderDataset(train_dir, classes, class_to_idx, TRAIN_TRANSFORM)
+    val_dataset = CharFolderDataset(val_dir, classes, class_to_idx, VAL_TRANSFORM)
     print(f"{len(classes)} classes: {classes}")
     print(f"{len(train_dataset)} train images, {len(val_dataset)} val images")
 
@@ -125,7 +141,7 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on {device}")
-    model = FCModel(len(classes)).to(device)
+    model = CharCNN(len(classes)).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
 
