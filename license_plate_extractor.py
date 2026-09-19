@@ -36,13 +36,17 @@ def straighten_skewed_rectangle(img):
         print("Not enough lines found. returning the original image")
         return img
 
+    # OpenCV <5 returns shape (N, 1, 4); OpenCV >=5 returns (N, 4) - normalize so
+    # indexing below works either way.
+    lines = lines.reshape(-1, 4)
+
     # Find the longest lines
-    longest_lines = sorted(lines, key=lambda l: np.linalg.norm((l[0][2]-l[0][0], l[0][3]-l[0][1])), reverse=True)[:2]
+    longest_lines = sorted(lines, key=lambda l: np.linalg.norm((l[2]-l[0], l[3]-l[1])), reverse=True)[:2]
 
     # Calculate angles of the longest lines
     angles = []
     for line in longest_lines:
-        x1, y1, x2, y2 = line[0]
+        x1, y1, x2, y2 = line
         angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
         angles.append(angle)
 
