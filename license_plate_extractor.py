@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -85,7 +87,12 @@ def show_resized_images(resized_imgs, cropped_license_image):
         plt.imshow(resized_imgs[i], cmap='gray')
     plt.show()
 
-def extract_digits(image_name, min_area=0.005, max_area=0.05, debug=False, show=False, prefix="image"):
+DEFAULT_PLATE_MODEL_PATH = "models/ir_lpr_plate_detector.pt"
+FALLBACK_PLATE_MODEL_PATH = "yolo11_anpr_ghd.pt"
+
+
+def extract_digits(image_name, min_area=0.005, max_area=0.05, debug=False, show=False, prefix="image",
+                    plate_model_path=DEFAULT_PLATE_MODEL_PATH):
     # find the biggest car in the image
     yolo_model = YOLO("yolo11n.pt")
     car_results = yolo_model(image_name)
@@ -126,7 +133,12 @@ def extract_digits(image_name, min_area=0.005, max_area=0.05, debug=False, show=
             plt.show()
 
     # detect the license plate in the cropped car image
-    model = YOLO("yolo11_anpr_ghd.pt")
+    # (retrained on the IR-LPR dataset - see models/README.md; falls back
+    # to the original small-dataset weights if that model isn't present)
+    if not Path(plate_model_path).exists():
+        print(f"{plate_model_path} not found, falling back to {FALLBACK_PLATE_MODEL_PATH}")
+        plate_model_path = FALLBACK_PLATE_MODEL_PATH
+    model = YOLO(plate_model_path)
     results = model(cropped_car_image)
     license_box = results[0].boxes[0].xyxy[0].cpu().numpy()
 
