@@ -69,6 +69,37 @@ Results land in `runs/detect/ir_lpr_plate_detector/` (gitignored —
 `weights/best.pt` is the model to use afterward). See
 `--help` for options (epochs, image size, a bigger `yolo11s.pt` base, etc).
 
+## Retraining the character OCR step
+
+The digit/character classifier (`image_classifier.py`'s `FCModel`) was
+only trained on the upstream repo's small dataset. IR-LPR's XML
+annotations also include a box per individual plate character (digit
+or Persian letter), so we can retrain it too:
+
+```bash
+python scripts/convert_char_annotations.py   # crops characters into an ImageFolder layout
+python scripts/train_char_classifier.py      # trains FCModel on them
+```
+
+`convert_char_annotations.py` preprocesses each crop (grayscale, CLAHE,
+Otsu threshold) to match the domain `license_plate_extractor.py`
+actually feeds the classifier at inference time — training on raw
+photo crops instead would silently produce a model that looks fine in
+validation but performs badly on real segmented digits, so this isn't
+optional. Output goes to `data/IR-LPR/car-image/{train,val}/chars/<character>/`.
+
+Training is fast (a tiny MLP on 28x28 images) even on CPU. It writes
+`models/ir_lpr_char_classifier.pt` and
+`models/ir_lpr_char_classifier_classes.json` (the class order, needed
+at inference since it depends on whichever character folders exist on
+the machine that trained it).
+
+Try the full pipeline (detect → segment → classify) on a photo:
+
+```bash
+python scripts/recognize_plate.py car_a.jpg
+```
+
 ## Licensing note
 
 - The upstream `yolo11-persian-license-plate-recognition` codebase does
@@ -87,7 +118,10 @@ Results land in `runs/detect/ir_lpr_plate_detector/` (gitignored —
 - [x] Annotation conversion to YOLO format (verified: 14671/14671 train,
       2120/2120 val converted on a real download)
 - [x] Training script
-- [ ] Actually run training and evaluate against the original
-      `yolo11_anpr_ghd.pt` weights
-- [ ] Retrain the character OCR step (digit extraction / classifier) on
-      IR-LPR's per-character boxes — not started
+- [x] Plate detector retrained: precision=0.964, recall=0.945,
+      mAP50=0.981, mAP50-95=0.775 (`models/ir_lpr_plate_detector.pt`)
+- [x] End-to-end pipeline tested on a real photo (found and fixed an
+      OpenCV 5.x compatibility bug in `straighten_skewed_rectangle`)
+- [ ] Character OCR retraining scripts written
+      (`convert_char_annotations.py`, `train_char_classifier.py`,
+      `recognize_plate.py`) — not yet run

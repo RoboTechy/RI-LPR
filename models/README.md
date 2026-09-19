@@ -21,3 +21,10 @@ checkpoint here:
 ```bash
 cp runs/detect/ir_lpr_plate_detector/weights/best.pt models/ir_lpr_plate_detector.pt
 ```
+
+`ir_lpr_char_classifier.pt` + `ir_lpr_char_classifier_classes.json` —
+character classifier (`FCModel`) retrained on IR-LPR's per-character
+boxes, via `scripts/convert_char_annotations.py` +
+`scripts/train_char_classifier.py` (both scripts write these files
+directly to this folder - no manual copy needed). Not yet run; see the
+main README's "Retraining the character OCR step" section.
