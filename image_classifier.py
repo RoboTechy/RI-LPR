@@ -77,11 +77,22 @@ class ImageClassifier:
         image_tensor = self.transform(image).unsqueeze(0)  # Add batch dimension
         return image_tensor.to(self.device)
 
-    def predict(self, image):
-        """Predict the class of the given image."""
+    def predict(self, image, allowed_classes=None):
+        """Predict the class of the given image.
+
+        allowed_classes restricts the argmax to a subset of class_names -
+        e.g. Iranian plates have a fixed 2-digit/1-letter/3-digit/2-digit
+        layout, so the caller can rule out digits at the letter position
+        (and vice versa) instead of leaving every misread possible.
+        """
         image_tensor = self.preprocess_image(image)
         with torch.no_grad():
             outputs = self.model(image_tensor)
+            if allowed_classes is not None:
+                allowed_idx = [self.class_names.index(c) for c in allowed_classes]
+                masked = torch.full_like(outputs, float("-inf"))
+                masked[:, allowed_idx] = outputs[:, allowed_idx]
+                outputs = masked
             _, predicted = torch.max(outputs, 1)
             predicted_class = self.class_names[predicted.item()]
         return predicted_class
