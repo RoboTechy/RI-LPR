@@ -131,6 +131,38 @@ python scripts/recognize_plate_v2.py car_a.jpg      # detect -> crop plate -> de
 reused by both the old `extract_digits()` pipeline and this new one, so
 neither duplicates that logic.
 
+## Fine-tuning the plate detector for trucks
+
+The real deployment target is a factory-gate camera reading truck plates
+(front + one-side angled, plate close to the camera) — not the pure
+side-profile shots most public truck datasets contain, and it's plate
+*reading* accuracy that matters, not vehicle detection. `truck_plates/raw/`
+holds a curated, manually-reviewed set of 253 real Iranian truck photos
+with single-class `license-plate` boxes (drafted by
+`scripts/prelabel_plate_boxes.py`, then hand-checked to drop false
+positives and any pure side-view shots that don't match the real camera
+angle).
+
+We skipped Roboflow for this: the boxes were already drawn, so there was
+nothing left for a labeling tool to do, and the free tier's constraints
+(forced-public projects, a paid AI-assist feature we didn't need) weren't
+worth the friction.
+
+```bash
+python scripts/prepare_truck_plate_dataset.py       # splits truck_plates/raw/ into data/truck-plates/{train,val}
+python scripts/finetune_truck_plate_detector.py      # continues training models/ir_lpr_plate_detector.pt on it
+```
+
+This *continues* training the existing car-trained detector rather than
+training a new one from base YOLO weights — see the script's docstring
+for why the learning rate is lower and epoch count smaller than
+`train_plate_detector.py`'s from-scratch run, and for the optional
+`--freeze` flag and `--mix-car-images` dataset option, both aimed at the
+same risk: a 253-image fine-tune overfitting or forgetting what the
+model already knows about car plates. **Validate against the car val set
+before replacing `models/ir_lpr_plate_detector.pt`** — the script prints
+the exact command to do that at the end of training.
+
 ## Licensing note
 
 - The upstream `yolo11-persian-license-plate-recognition` codebase does
@@ -197,13 +229,23 @@ neither duplicates that logic.
       and the lack of Iran-specific truck training data for either plate
       detector, not something fixable in code alone
 
+- [x] Curated a real Iran-specific truck-plate dataset (253 images,
+      cleaned of side-profile shots that don't match the actual
+      factory-gate camera angle) and wrote
+      `scripts/prepare_truck_plate_dataset.py` +
+      `scripts/finetune_truck_plate_detector.py` to fine-tune
+      `models/ir_lpr_plate_detector.pt` on it directly — skipped
+      Roboflow, no labeling left to do once boxes are drafted
+
 ## Next up
 
-- [ ] Truck accuracy is still the weak point (4/10 on a low-res test
-      set) - either find/build an Iran-specific truck-plate dataset to
-      fine-tune on, or re-test once real (better-quality) factory-gate
-      camera photos are available - the current test set may
-      underestimate real-world performance
+- [ ] Run the truck fine-tune locally (GPU), validate against the car
+      val set for regression, and re-test the 10-truck end-to-end suite
+      (currently 4/10) to see the improvement
+- [ ] Once real (better-quality) factory-gate camera photos are
+      available, add them to `truck_plates/raw/` and re-run — the
+      current 253-image set is still all from public sources, a
+      pessimistic proxy for the real camera
 - [ ] Production prep for the CPU-only 20-core server: export both YOLO
       models (plate detector + character detector) to ONNX for faster
       CPU inference (`model.export(format="onnx")`)
