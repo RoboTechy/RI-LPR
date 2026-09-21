@@ -163,6 +163,43 @@ model already knows about car plates. **Validate against the car val set
 before replacing `models/ir_lpr_plate_detector.pt`** — the script prints
 the exact command to do that at the end of training.
 
+## Manual annotation for new truck images (LabelImg)
+
+When you add more raw truck photos later (a batch from the real
+factory-gate camera, or any other source), don't box them by hand from
+scratch and don't go back to Roboflow - draft boxes automatically and
+just correct them:
+
+```bash
+pip install -r requirements-annotate.txt   # one-time, only needed on the machine doing annotation
+python scripts/prelabel_plate_boxes.py /path/to/new/photos /path/to/output
+cp /path/to/output/prelabeled/classes.txt /path/to/output/prelabeled/labels/    # LabelImg looks for classes.txt next to the label files it writes to (the save-dir arg below), not next to the images
+labelImg /path/to/output/prelabeled/images /path/to/output/prelabeled/classes.txt /path/to/output/prelabeled/labels
+```
+
+`prelabel_plate_boxes.py` already runs the same detector pipeline used at
+inference and writes a YOLO `.txt` box next to every image it found a
+plate in (see the script's docstring). LabelImg's third command-line
+argument is a save-dir - pointing it at that same `labels/` folder means
+it opens each image already showing the box we drafted, so you're
+correcting/deleting/confirming instead of drawing every box from zero.
+Two things to check once LabelImg opens:
+
+- The format toggle button (top-left toolbar) must say **YOLO**, not
+  PascalVOC - click it until it does, or it'll write `.xml` files
+  `prepare_truck_plate_dataset.py` won't understand.
+- Images that got no automatic box land in
+  `/path/to/output/needs_manual_box/` instead (no `.txt` file) - open
+  that folder separately and draw a box by hand only where a plate is
+  actually visible; otherwise discard the photo (same policy used when
+  the first 359-image batch was cut down to the 253 in
+  `truck_plates/raw/`).
+
+When you're done, move the corrected `images/` + `labels/` pairs into
+`truck_plates/raw/` (merging with what's already there, filenames won't
+collide) and re-run `prepare_truck_plate_dataset.py` +
+`finetune_truck_plate_detector.py`.
+
 ## Licensing note
 
 - The upstream `yolo11-persian-license-plate-recognition` codebase does

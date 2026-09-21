@@ -1,0 +1,4 @@
+# Optional: only needed on the machine where you manually review/correct
+# pre-labeled bounding boxes (see the "Manual annotation" section of
+# README.md). Not needed for training or inference.
+labelImg
