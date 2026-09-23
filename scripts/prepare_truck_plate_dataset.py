@@ -105,6 +105,9 @@ def main() -> None:
 
     train_images, train_labels = OUT_DIR / "train" / "images", OUT_DIR / "train" / "labels"
     val_images, val_labels = OUT_DIR / "val" / "images", OUT_DIR / "val" / "labels"
+    for d in (train_images, train_labels, val_images, val_labels):
+        if d.exists():
+            shutil.rmtree(d)
     write_split(train_pairs, train_images, train_labels)
     write_split(val_pairs, val_images, val_labels)
     print(f"train: {len(train_pairs)} truck images, val: {len(val_pairs)} truck images")
