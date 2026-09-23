@@ -41,6 +41,12 @@ def main() -> None:
         "--name", default="ir_lpr_plate_detector",
         help="run name; results land in runs/detect/<name>/",
     )
+    parser.add_argument(
+        "--device", default="0",
+        help="'0' for first CUDA GPU (default), 'cpu' if no GPU is available "
+             "or working - ultralytics does NOT fall back to CPU on its own, "
+             "it errors out",
+    )
     args = parser.parse_args()
 
     if not DATA_YAML.exists():
@@ -55,8 +61,8 @@ def main() -> None:
         epochs=args.epochs,
         imgsz=args.imgsz,
         batch=args.batch,
-        device=0,        # first CUDA GPU; falls back to CPU if none found
-        amp=True,        # mixed precision - roughly halves VRAM use
+        device=args.device,
+        amp=args.device != "cpu",   # mixed precision needs a CUDA GPU
         project=str(REPO_ROOT / "runs" / "detect"),
         name=args.name,
     )
