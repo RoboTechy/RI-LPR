@@ -1,0 +1,5 @@
+# Only needed on the production server to run the exported ONNX models
+# (scripts/export_onnx.py) - no torch/CUDA needed there at all.
+onnx
+onnxruntime
+onnxslim

@@ -274,17 +274,56 @@ collide) and re-run `prepare_truck_plate_dataset.py` +
       `models/ir_lpr_plate_detector.pt` on it directly — skipped
       Roboflow, no labeling left to do once boxes are drafted
 
+- [x] Added 158 real factory-gate camera photos (own phone, day/noon/
+      night) to `truck_plates/raw/`, annotated with LabelImg per the
+      "Manual annotation" section above (253 → 411 total). Fine-tuned
+      again: **mAP50 0.775 → 0.902, mAP50-95 0.565 → 0.711** on a clean
+      62-image val split. (Found and fixed a real bug along the way:
+      `prepare_truck_plate_dataset.py` never cleared its train/val
+      output before regenerating, so re-running it after adding data
+      silently left stale images from the previous run mixed in —
+      first fine-tune of the 411-image set reported val=93 instead of
+      the correct 62 until this was fixed.) Car val regressed to
+      P=0.916/R=0.862/mAP50=0.909/mAP50-95=0.649 (from
+      P=0.964/R=0.945/mAP50=0.981/mAP50-95=0.775) — acceptable, this
+      project only cares about trucks. End-to-end re-tested on the
+      repo's 4 car samples: still a clean 8/8 on all four despite the
+      aggregate car regression.
+- [x] Wrote `scripts/inspect_val_failures.py` to find and visualize
+      which val images the detector still misses (ground truth in
+      green, any prediction in red). Result: 7 of 8 remaining misses
+      trace to the original 253 public-source images (pure side
+      profiles, cluttered multi-vehicle scenes) — framings that don't
+      match the real camera and were never going to be fixed by more
+      of the same. Only 1 of the ~24 real-camera-photo val images
+      missed, and that one was an atypical close/steep test shot, not
+      the camera's actual planned angle. Conclusion: real-world
+      performance at the actual deployment angle is likely already
+      close to this data can measure — further photos should target
+      specific failure conditions (once the live camera is running)
+      rather than "more of the same," a much smaller ask than initially
+      assumed given how visually uniform the real truck traffic is.
+- [x] `scripts/export_onnx.py` exports both YOLO models to ONNX for the
+      CPU-only production server (`requirements-deploy.txt`: onnx,
+      onnxruntime, onnxslim — no torch/CUDA needed on that box at all).
+      Verified the ONNX output matches PyTorch's (near-identical boxes
+      on a sample image). **Speed note:** benchmarked, and ONNX was NOT
+      faster than PyTorch CPU here (~78ms vs ~74ms/image) - these are
+      tiny models (yolo11n) where runtime overhead dominates, so the
+      usual "ONNX is faster on CPU" assumption didn't hold on this
+      hardware. The real benefit is dropping the torch/CUDA dependency
+      chain from the server, not speed - re-benchmark on the actual
+      production server before assuming otherwise.
+
 ## Next up
 
-- [ ] Run the truck fine-tune locally (GPU), validate against the car
-      val set for regression, and re-test the 10-truck end-to-end suite
-      (currently 4/10) to see the improvement
-- [ ] Once real (better-quality) factory-gate camera photos are
-      available, add them to `truck_plates/raw/` and re-run — the
-      current 253-image set is still all from public sources, a
-      pessimistic proxy for the real camera
-- [ ] Production prep for the CPU-only 20-core server: export both YOLO
-      models (plate detector + character detector) to ONNX for faster
-      CPU inference (`model.export(format="onnx")`)
+- [ ] Deploy to the production server using the ONNX exports. Design
+      still open: how frames arrive (live stream vs dropped files vs
+      trigger), what happens with a read plate (log/DB/another
+      system), and whether this runs as a long-lived service or a
+      script - needs answers before writing the deployment wrapper.
+- [ ] Once the live camera is running, prioritize collecting *failure*
+      cases (low-confidence or wrong reads) over random new photos for
+      the next fine-tune round - see `inspect_val_failures.py` above.
 - [ ] Resolve the licensing question (see "Licensing note" above)
       before any public release
