@@ -97,6 +97,23 @@ def show_resized_images(resized_imgs, cropped_license_image):
 
 DEFAULT_PLATE_MODEL_PATH = "models/ir_lpr_plate_detector.pt"
 FALLBACK_PLATE_MODEL_PATH = "yolo11_anpr_ghd.pt"
+DEFAULT_CHAR_MODEL_PATH = "models/ir_lpr_char_detector.pt"
+
+# Iranian plates: 2 digits, 1 letter, 3 digits, 2 digits (8 characters,
+# left to right) - e.g. 12 الف 345 67. read_plate() treats anything else
+# (wrong character count, letter in the wrong slot, a digit where the
+# letter belongs) as an untrustworthy read, not a plate to act on.
+PLATE_LENGTH = 8
+LETTER_POSITION = 2
+
+_char_detector = None
+
+
+def _get_char_detector(char_model_path):
+    global _char_detector
+    if _char_detector is None:
+        _char_detector = YOLO(char_model_path)
+    return _char_detector
 
 # COCO class ids this pipeline looks for as "the vehicle" in a photo.
 # car=2, truck=7, bus=5. Not motorcycle(3) - not needed for this project.
@@ -144,12 +161,17 @@ def _detect_plate_box(cropped_vehicle_image, plate_model_path):
 
 
 def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
-                           plate_model_path=DEFAULT_PLATE_MODEL_PATH):
+                           plate_model_path=DEFAULT_PLATE_MODEL_PATH,
+                           return_vehicle_crop=False):
     """Detect the car/truck, then the plate within it, and return the cropped plate image (RGB).
 
     Split out of extract_digits() so other pipelines (e.g. a character
     detector that runs directly on the plate crop) can reuse this first
     half without the segmentation/classification steps that follow it.
+
+    return_vehicle_crop=True also returns the cropped vehicle image, as
+    (plate_crop, vehicle_crop) - both images are wanted for the
+    production audit log (see read_plate()), not just the plate.
     """
     # find the biggest car/truck in the image
     yolo_model = YOLO("yolo11n.pt")
@@ -221,6 +243,8 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
         if show:
             plt.show()
 
+    if return_vehicle_crop:
+        return cropped_license_image, cropped_car_image
     return cropped_license_image
 
 
@@ -318,6 +342,78 @@ def extract_digits(image_name, min_area=0.005, max_area=0.05, debug=False, show=
         show_resized_images(resized_imgs, cropped_license_image)
     
     print(f"{len(resized_imgs)}/8 digits detected")
-    
+
     return resized_imgs, cropped_license_image
+
+
+def read_plate(image_name, char_model_path=DEFAULT_CHAR_MODEL_PATH,
+                plate_model_path=DEFAULT_PLATE_MODEL_PATH):
+    """Full pipeline (vehicle -> plate -> characters), with a hard pass/fail
+    gate instead of a printed warning - this is what a production worker
+    should call, not detect_and_crop_plate()/the char model directly.
+
+    A read is only "success": True if the character detector found
+    EXACTLY PLATE_LENGTH characters with the letter in LETTER_POSITION
+    and digits everywhere else. Anything short of that (wrong character
+    count, letter/digit in the wrong slot) comes back as "success": False
+    with a human-readable "reason" - a caller filling in a form
+    automatically needs to know whether to trust a result, not just see
+    a warning printed to a log it isn't reading.
+
+    Returns a dict:
+        success: bool
+        plate_text: str or None - space-joined characters, left to right
+                    (only set when success is True)
+        characters: list of (character, confidence) tuples, left to right,
+                    whatever was detected - returned even on failure, for
+                    debugging/audit
+        reason: str or None - why success is False
+        plate_crop: the cropped plate image (RGB numpy array)
+        vehicle_crop: the cropped vehicle image (RGB numpy array)
+    """
+    plate_crop, vehicle_crop = detect_and_crop_plate(
+        image_name, plate_model_path=plate_model_path, return_vehicle_crop=True)
+
+    char_model = _get_char_detector(char_model_path)
+    results = char_model(plate_crop, verbose=False)[0]
+
+    detections = []
+    for box in results.boxes:
+        x_center = box.xywh[0][0].item()
+        class_name = results.names[int(box.cls[0])]
+        confidence = box.conf[0].item()
+        detections.append((x_center, class_name, confidence))
+    detections.sort(key=lambda d: d[0])  # left to right
+
+    characters = [(name, confidence) for _, name, confidence in detections]
+
+    def failure(reason):
+        return {
+            "success": False,
+            "plate_text": None,
+            "characters": characters,
+            "reason": reason,
+            "plate_crop": plate_crop,
+            "vehicle_crop": vehicle_crop,
+        }
+
+    if len(characters) != PLATE_LENGTH:
+        return failure(f"expected {PLATE_LENGTH} characters, got {len(characters)}")
+
+    letter = characters[LETTER_POSITION][0]
+    if letter.isdigit():
+        return failure(f"position {LETTER_POSITION} should be a letter, got digit {letter!r}")
+
+    for i, (char, _confidence) in enumerate(characters):
+        if i != LETTER_POSITION and not char.isdigit():
+            return failure(f"position {i} should be a digit, got letter {char!r}")
+
+    return {
+        "success": True,
+        "plate_text": " ".join(char for char, _confidence in characters),
+        "characters": characters,
+        "reason": None,
+        "plate_crop": plate_crop,
+        "vehicle_crop": vehicle_crop,
+    }
 
