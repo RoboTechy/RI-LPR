@@ -81,14 +81,56 @@
     return `${first5}/${last2}`;
   }
 
+  // Plain fill for ordinary text fields (no search/filter behavior
+  // attached) - e.g. the new-vehicle form's "شماره پلاک" field.
   function setFieldValue(input, value) {
     input.focus();
     input.value = value;
     input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('keyup', { bubbles: true }));
-    // NOTE: not yet verified against the live page whether this is enough
-    // to trigger Telerik's AJAX search - may need a real KeyboardEvent
-    // with keyCode set, or a trailing space+backspace, once tested live.
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  // KeyboardEvent's keyCode/which/charCode are read-only once
+  // constructed in modern browsers (they stay 0), but legacy code
+  // (this Telerik RadComboBox included - confirmed empirically: a
+  // bare `new Event('keyup')` left the search unfiltered, showing the
+  // full vehicle list instead of a real AJAX search result) often
+  // checks event.keyCode directly. Overriding the getter is the
+  // standard workaround to make a synthetic event report a real value.
+  function dispatchKeyEvent(input, type, ch) {
+    const keyCode = ch.charCodeAt(0);
+    const event = new KeyboardEvent(type, { bubbles: true, cancelable: true, key: ch });
+    Object.defineProperty(event, 'keyCode', { get: () => keyCode });
+    Object.defineProperty(event, 'which', { get: () => keyCode });
+    Object.defineProperty(event, 'charCode', { get: () => keyCode });
+    input.dispatchEvent(event);
+  }
+
+  // Simulates real character-by-character typing (not "set .value once
+  // and fire one generic event") - needed to trigger Rahkaran's own
+  // AJAX vehicle search, which a single bulk event did not trigger.
+  function typeIntoField(input, text, onDone) {
+    input.focus();
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+
+    let i = 0;
+    function typeNextChar() {
+      if (i >= text.length) {
+        // give the debounced AJAX search time to fire and come back
+        setTimeout(onDone, 900);
+        return;
+      }
+      const ch = text[i];
+      input.value += ch;
+      dispatchKeyEvent(input, 'keydown', ch);
+      dispatchKeyEvent(input, 'keypress', ch);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      dispatchKeyEvent(input, 'keyup', ch);
+      i += 1;
+      setTimeout(typeNextChar, 70);
+    }
+    typeNextChar();
   }
 
   function buildOverlay(anchorInput, onPick) {
@@ -170,17 +212,17 @@
     input.addEventListener('focus', () => {
       buildOverlay(input, (plate) => {
         const shortPlate = formatPlateShort(plate.chars);
-        setFieldValue(input, shortPlate);
-
-        waitForDropdownResult(config.vehicleDropdownId, (itemCount) => {
-          if (itemCount === 0) {
-            console.log('[RI-LPR] no matching vehicle for', shortPlate, '- opening the new-vehicle form');
-            chrome.storage.local.set({ [STORAGE_KEY_PENDING_PLATE]: shortPlate }, () => {
-              clickNewButton(config.vehicleDropdownId);
-            });
-          } else {
-            console.log(`[RI-LPR] ${itemCount} matching vehicle(s) found for`, shortPlate, '- pick one from Rahkaran\'s own list');
-          }
+        typeIntoField(input, shortPlate, () => {
+          waitForDropdownResult(config.vehicleDropdownId, (itemCount) => {
+            if (itemCount === 0) {
+              console.log('[RI-LPR] no matching vehicle for', shortPlate, '- opening the new-vehicle form');
+              chrome.storage.local.set({ [STORAGE_KEY_PENDING_PLATE]: shortPlate }, () => {
+                clickNewButton(config.vehicleDropdownId);
+              });
+            } else {
+              console.log(`[RI-LPR] ${itemCount} matching vehicle(s) found for`, shortPlate, '- pick one from Rahkaran\'s own list');
+            }
+          });
         });
       });
     });
