@@ -1,0 +1,39 @@
+.ri-lpr-overlay {
+  position: absolute;
+  z-index: 99999;
+  background: #fff;
+  border: 1px solid #888;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  font-family: Tahoma, sans-serif;
+  direction: rtl;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.ri-lpr-overlay-title {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #666;
+  border-bottom: 1px solid #eee;
+  background: #f7f7f7;
+  position: sticky;
+  top: 0;
+}
+
+.ri-lpr-overlay-item {
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.ri-lpr-overlay-item:hover {
+  background: #e8f0fe;
+}
+
+.ri-lpr-overlay-empty {
+  padding: 10px;
+  color: #999;
+  font-size: 13px;
+}
