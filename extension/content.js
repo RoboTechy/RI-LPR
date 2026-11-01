@@ -213,11 +213,21 @@
     const input = document.getElementById(config.vehicleInputId);
     if (!input) return; // this frame isn't showing the field right now - nothing to do
 
+    // typeIntoField() calls input.focus() itself (needed to make the
+    // simulated keystrokes land on the field), which would otherwise
+    // re-trigger this very focus listener and pop our overlay back up
+    // on top of Rahkaran's own results while we're mid-fill. This flag
+    // suppresses that re-trigger for the duration of one pick.
+    let suppressOverlayOnFocus = false;
+
     input.addEventListener('focus', () => {
+      if (suppressOverlayOnFocus) return;
       buildOverlay(input, (plate) => {
+        suppressOverlayOnFocus = true;
         const shortPlate = formatPlateShort(plate.chars);
         typeIntoField(input, shortPlate, () => {
           waitForDropdownResult(config.vehicleDropdownId, (itemCount) => {
+            suppressOverlayOnFocus = false;
             if (itemCount === 0) {
               console.log('[RI-LPR] no matching vehicle for', shortPlate, '- opening the new-vehicle form');
               chrome.storage.local.set({ [STORAGE_KEY_PENDING_PLATE]: shortPlate }, () => {
