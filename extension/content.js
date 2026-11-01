@@ -220,8 +220,7 @@
     // suppresses that re-trigger for the duration of one pick.
     let suppressOverlayOnFocus = false;
 
-    input.addEventListener('focus', () => {
-      if (suppressOverlayOnFocus) return;
+    function openOverlay() {
       buildOverlay(input, (plate) => {
         suppressOverlayOnFocus = true;
         const shortPlate = formatPlateShort(plate.chars);
@@ -239,6 +238,28 @@
           });
         });
       });
+    }
+
+    input.addEventListener('focus', () => {
+      if (suppressOverlayOnFocus) return;
+      openOverlay();
+    });
+
+    // If the field already had a value (e.g. a vehicle the operator
+    // picked earlier) and they clear it with backspace/delete while
+    // still focused, no new 'focus' event fires - so without this the
+    // overlay would only come back after a blur+refocus. Reopen it the
+    // moment the field goes back to empty; but once they start typing
+    // a character themselves, leave them alone and let Rahkaran's own
+    // search run undisturbed.
+    input.addEventListener('input', () => {
+      if (suppressOverlayOnFocus) return;
+      if (input.value === '') {
+        openOverlay();
+      } else {
+        const existing = document.getElementById('ri-lpr-overlay');
+        if (existing) existing.remove();
+      }
     });
 
     function captureAndLog() {
