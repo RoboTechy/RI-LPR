@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}کاربران - RI-LPR{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <h3>کاربران پنل مدیریت</h3>
+    <a class="btn" href="/admin/users/new">+ افزودن کاربر</a>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>نام کاربری</th>
+        <th>مدیر کل</th>
+        <th>دسترسی به دوربین‌ها</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.username }}</td>
+        <td>{{ "✅" if u.is_superuser else "❌" }}</td>
+        <td>
+          {% if u.is_superuser %}همه{% else %}
+            {% for c in u.cameras %}<span class="badge">{{ c.name }}</span>{% endfor %}
+          {% endif %}
+        </td>
+        <td>
+          <a class="btn secondary" href="/admin/users/{{ u.id }}/edit">ویرایش</a>
+          {% if u.id != admin.id %}
+          <form class="inline" method="post" action="/admin/users/{{ u.id }}/delete" onsubmit="return confirm('حذف شود؟');">
+            <button class="btn danger" type="submit">حذف</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">هیچ کاربری ثبت نشده</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}داشبورد - RI-LPR{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="stat-grid">
+    <div class="stat"><div class="num">{{ camera_count }}</div><div>دوربین‌ها</div></div>
+    <div class="stat"><div class="num">{{ log_count }}</div><div>مجموع ثبت‌ها</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>آخرین ثبت‌ها</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>تاریخ</th>
+        <th>شماره پلاک</th>
+        <th>نوع مجوز</th>
+        <th>وسیله حمل</th>
+        <th>IP اوپراتور</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in recent_logs %}
+      <tr>
+        <td>{{ jalali(log.created_at) }}</td>
+        <td>{{ log.plate or "-" }}</td>
+        <td>{{ "بارگیری" if log.page_type == "shipping" else "تخلیه" }}</td>
+        <td>{{ log.vehicle or "-" }}</td>
+        <td>{{ log.operator_computer_ip or "-" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">هنوز هیچ ثبتی وجود ندارد</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

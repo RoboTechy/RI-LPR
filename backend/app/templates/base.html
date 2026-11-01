@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}RI-LPR{% endblock %}</title>
+  <link rel="stylesheet" href="/admin/static/style.css">
+</head>
+<body>
+  {% if admin %}
+  <div class="topbar">
+    <div class="brand">RI-LPR - پنل مدیریت</div>
+    <div>
+      <a href="/admin">داشبورد</a>
+      <a href="/admin/cameras">دوربین‌ها</a>
+      {% if admin.is_superuser %}<a href="/admin/users">کاربران</a>{% endif %}
+      <a href="/admin/logs">گزارش‌ها</a>
+      <a href="/admin/logout">خروج ({{ admin.username }})</a>
+    </div>
+  </div>
+  {% endif %}
+  <div class="container">
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

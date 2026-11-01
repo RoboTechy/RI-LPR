@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ri_lpr
+      POSTGRES_USER: ri_lpr
+      POSTGRES_PASSWORD: ri_lpr
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - db
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://ri_lpr:ri_lpr@db:5432/ri_lpr
+      MEDIA_ROOT: /app/backend/media
+    ports:
+      - "8000:8000"
+    volumes:
+      - media_data:/app/backend/media
+
+  worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile.worker
+    restart: unless-stopped
+    depends_on:
+      - db
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://ri_lpr:ri_lpr@db:5432/ri_lpr
+      MEDIA_ROOT: /app/backend/media
+    volumes:
+      - media_data:/app/backend/media
+
+volumes:
+  db_data:
+  media_data:

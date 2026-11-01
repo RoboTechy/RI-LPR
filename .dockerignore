@@ -1,0 +1,17 @@
+.git
+*.ipynb
+dataset/
+truck_plates/
+results/
+car_a.jpg
+car_b.jpg
+car_c.jpg
+car_d.jpg
+persian_digit_classifier.pt
+image_classifier.py
+scripts/
+models/ir_lpr_char_classifier.pt
+models/ir_lpr_char_classifier_classes.json
+backend/media/
+backend/__pycache__/
+**/__pycache__/

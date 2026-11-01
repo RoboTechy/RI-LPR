@@ -9,3 +9,7 @@ data/
 runs/
 *.venv/
 venv/
+
+# backend secrets and runtime data - never commit these
+backend/.env
+backend/media/

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}گزارش‌ها - RI-LPR{% endblock %}
+{% block content %}
+<div class="card">
+  <h3>گزارش ورود/خروج</h3>
+  <form method="get" action="/admin/logs" style="display:flex;gap:8px;margin-bottom:12px;">
+    <input type="text" name="plate" value="{{ plate }}" placeholder="جستجو بر اساس شماره پلاک">
+    <button class="btn" type="submit">جستجو</button>
+  </form>
+  <table>
+    <thead>
+      <tr>
+        <th>تاریخ</th>
+        <th>شماره پلاک</th>
+        <th>نوع مجوز</th>
+        <th>حمل‌کننده</th>
+        <th>مرکز نگهداری</th>
+        <th>جایگاه</th>
+        <th>وسیله حمل</th>
+        <th>لاین</th>
+        <th>تصاویر</th>
+        <th>IP اوپراتور</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td>{{ jalali(log.created_at) }}</td>
+        <td>{{ log.plate or "-" }}</td>
+        <td>{{ "بارگیری" if log.page_type == "shipping" else "تخلیه" }}</td>
+        <td>{{ log.transporter or "-" }}</td>
+        <td>{{ log.plant or "-" }}</td>
+        <td>{{ log.loading_point or "-" }}</td>
+        <td>{{ log.vehicle or "-" }}</td>
+        <td>
+          {% if log.detected_plate %}{{ log.detected_plate.camera.line_number }}{% else %}-{% endif %}
+        </td>
+        <td>
+          {% if log.detected_plate and log.detected_plate.plate_image_path %}
+            <a href="/media/{{ log.detected_plate.plate_image_path }}" target="_blank">
+              <img class="thumb" src="/media/{{ log.detected_plate.plate_image_path }}">
+            </a>
+          {% else %}-{% endif %}
+        </td>
+        <td>{{ log.operator_computer_ip or "-" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="10">موردی یافت نشد</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div style="margin-top:12px;">
+    {% if has_prev %}<a class="btn secondary" href="/admin/logs?plate={{ plate }}&page={{ page - 1 }}">قبلی</a>{% endif %}
+    {% if has_next %}<a class="btn secondary" href="/admin/logs?plate={{ plate }}&page={{ page + 1 }}">بعدی</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

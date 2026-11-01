@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}دوربین - RI-LPR{% endblock %}
+{% block content %}
+<div class="card" style="max-width:480px;">
+  <h3>{{ "ویرایش دوربین" if camera else "افزودن دوربین" }}</h3>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post" action="{{ '/admin/cameras/' ~ camera.id ~ '/edit' if camera else '/admin/cameras/new' }}">
+    <label>نام (مثلاً لاین ۱)</label>
+    <input type="text" name="name" value="{{ camera.name if camera else '' }}" required>
+
+    <label>شماره لاین</label>
+    <input type="number" name="line_number" value="{{ camera.line_number if camera else '' }}" required>
+
+    <label>آی‌پی دوربین</label>
+    <input type="text" name="rtsp_ip" value="{{ camera.rtsp_ip if camera else '' }}" required>
+
+    <label>پورت RTSP</label>
+    <input type="number" name="rtsp_port" value="{{ camera.rtsp_port if camera else 554 }}">
+
+    <label>نام کاربری</label>
+    <input type="text" name="rtsp_username" value="{{ camera.rtsp_username if camera else '' }}">
+
+    <label>رمز عبور</label>
+    <input type="password" name="rtsp_password" value="{{ camera.rtsp_password if camera else '' }}">
+
+    <label>مسیر RTSP</label>
+    <input type="text" name="rtsp_path" value="{{ camera.rtsp_path if camera else '/Streaming/Channels/101' }}">
+
+    <label>آدرس کامل RTSP (اختیاری - اگه پر بشه، به‌جای فیلدهای بالا استفاده می‌شه)</label>
+    <input type="text" name="rtsp_url_override" value="{{ camera.rtsp_url_override if camera and camera.rtsp_url_override else '' }}">
+
+    <label><input type="checkbox" name="is_active" {{ "checked" if (camera is none) or camera.is_active else "" }} style="width:auto;display:inline;"> فعال</label>
+
+    <div style="margin-top:16px;">
+      <button class="btn" type="submit">ذخیره</button>
+      <a class="btn secondary" href="/admin/cameras">انصراف</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

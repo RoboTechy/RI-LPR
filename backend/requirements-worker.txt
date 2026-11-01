@@ -1,0 +1,12 @@
+# The worker needs DB access (same models as the API) plus the ML
+# pipeline's own dependencies - CPU-only (see models/README.md and
+# scripts/export_onnx.py for why the .onnx weights are used here
+# instead of the .pt ones).
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.10
+opencv-python-headless
+ultralytics
+onnx
+onnxruntime
+onnxslim
+open-image-models[onnx]

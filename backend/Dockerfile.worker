@@ -1,0 +1,20 @@
+FROM python:3.11-slim
+
+# libgl1/libglib2.0-0 - required by opencv-python-headless/ultralytics at import time.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY backend/requirements-worker.txt /app/backend/requirements-worker.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements-worker.txt
+
+COPY backend /app/backend
+COPY license_plate_extractor.py /app/license_plate_extractor.py
+COPY yolo11n.pt /app/yolo11n.pt
+COPY models /app/models
+
+WORKDIR /app
+
+CMD ["python", "backend/worker/camera_worker.py"]
