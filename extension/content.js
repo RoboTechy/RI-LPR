@@ -69,6 +69,10 @@
   const MOCK_DETECTED_PLATES = [
     { id: 'mock-1', chars: ['1', '2', 'ج', '3', '4', '5', '6', '7'] },
     { id: 'mock-2', chars: ['9', '8', 'و', '1', '1', '1', '2', '2'] },
+    // real, already-registered plate (51712/36) - the letter here is a
+    // placeholder since it's stripped before use; this one is only for
+    // checking the "match found" path.
+    { id: 'mock-3-real', chars: ['5', '1', 'ب', '7', '1', '2', '3', '6'] },
   ];
 
   // Iranian plate is 8 chars: [2 digits][letter][3 digits][2 digits].
