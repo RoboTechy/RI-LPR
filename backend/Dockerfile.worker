@@ -7,6 +7,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# CPU-only torch/torchvision FIRST, from PyTorch's own CPU wheel index -
+# ultralytics (installed next, via requirements-worker.txt) depends on
+# torch but only needs it importable; the default PyPI torch wheel pulls
+# in the entire CUDA 13 toolkit (cudnn, nccl, triton, a dozen nvidia-*
+# packages, multiple GB) for a GPU this deployment doesn't have or need
+# (CPU-only ONNX inference - see models/README.md). Installing the CPU
+# build here first means it's already satisfied by the time pip resolves
+# requirements-worker.txt's "torch>=1.8.0", so that huge resolution never
+# gets pulled at all.
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
 COPY backend/requirements-worker.txt /app/backend/requirements-worker.txt
 RUN pip install --no-cache-dir -r /app/backend/requirements-worker.txt
 
