@@ -5,6 +5,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# pip's default per-chunk read timeout (15s) is too short for some of
+# these wheels (opencv, onnxruntime, torch) on a slower connection - hit
+# a plain ReadTimeoutError downloading one of them. More time + retries
+# instead of pip just giving up.
+ENV PIP_DEFAULT_TIMEOUT=180
+ENV PIP_RETRIES=10
+
 WORKDIR /app
 
 # CPU-only torch/torchvision FIRST, from PyTorch's own CPU wheel index -
