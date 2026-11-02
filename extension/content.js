@@ -24,7 +24,7 @@
 
   // Must match backend/.env's EXTENSION_API_KEY on whatever server the
   // backend actually runs on (see backend/README.md).
-  const API_BASE_URL = 'http://192.168.201.32:8000';
+  const API_BASE_URL = 'http://192.168.201.4:8000';
   const API_KEY = 'change-me-extension-key';
 
   // --- Field/selector map, one entry per Rahkaran page this script cares about ---

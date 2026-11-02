@@ -33,7 +33,7 @@ relies on.
 
 1. Open `content.js` and check the two constants near the top:
    - `API_BASE_URL` - where the backend is running (currently
-     `http://192.168.201.32:8000`).
+     `http://192.168.201.4:8000`).
    - `API_KEY` - must match `EXTENSION_API_KEY` in the backend's `.env`
      (see `../backend/README.md`). If someone changes one, change the
      other.
@@ -50,7 +50,7 @@ load).
 
 1. Make sure the backend is up and at least one camera is logging
    plates (or insert a test row directly, or just wait for a real
-   truck) - `GET http://192.168.201.32:8000/api/plates/active` with
+   truck) - `GET http://192.168.201.4:8000/api/plates/active` with
    header `X-API-Key: <the same key>` should return a non-empty list.
 2. Click into the "وسیله حمل" field on a permit page - the overlay
    should show the active plates, each with its line number.

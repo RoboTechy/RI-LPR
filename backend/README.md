@@ -10,7 +10,7 @@ FastAPI + PostgreSQL, fully dockerized. Three containers:
   using the exported ONNX models), and logs successful reads to the
   database.
 
-## Deploy (on `192.168.201.32`, or wherever it ends up running)
+## Deploy (on `192.168.201.4`, or wherever it ends up running)
 
 ```bash
 cd ri-lpr/backend
@@ -20,7 +20,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-- Admin panel: `http://192.168.201.32:8000/admin` - log in with
+- Admin panel: `http://192.168.201.4:8000/admin` - log in with
   `DEFAULT_ADMIN_USERNAME`/`DEFAULT_ADMIN_PASSWORD` from `.env` (only
   created automatically the very first time, if no admin user exists
   yet - change the password or add a new admin right after).
@@ -34,7 +34,7 @@ docker compose up -d --build
 
 - `EXTENSION_API_KEY` from `.env` must match the `API_KEY` constant in
   `extension/content.js`.
-- The extension's `manifest.json` needs `http://192.168.201.32:8000/*`
+- The extension's `manifest.json` needs `http://192.168.201.4:8000/*`
   in `host_permissions` (already added).
 
 ## API (extension-facing, needs header `X-API-Key: <EXTENSION_API_KEY>`)

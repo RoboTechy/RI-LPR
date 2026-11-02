@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Fills camera-detected truck plates into Rahkaran's loading/unloading permit forms instead of the operator typing them.",
   "permissions": ["storage"],
-  "host_permissions": ["http://172.16.120.15/*", "http://192.168.201.32:8000/*"],
+  "host_permissions": ["http://172.16.120.15/*", "http://192.168.201.4:8000/*"],
   "content_scripts": [
     {
       "matches": ["http://172.16.120.15/*"],
