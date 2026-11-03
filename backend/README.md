@@ -52,10 +52,17 @@ docker compose up -d --build
   operators, a driver may end up at a different operator's desk than
   their own line, so the extension shows every currently active plate,
   labeled with its line number, rather than filtering by camera).
-- A detected plate is de-duplicated per camera for
-  `WORKER_DEDUPE_COOLDOWN_SECONDS` (default 5 min) - not a real
-  "truck has left" detection. Good enough for now; revisit if trucks
-  queue at the same line for longer than that.
+- A truck is recognized as "the same one still sitting there" (no new
+  row - its existing one's timestamp is refreshed instead) by comparing
+  where the vehicle sits in frame between reads (`WORKER_IOU_SAME_TRUCK_THRESHOLD`),
+  not by plate text (OCR can misread a single character between polls)
+  or by a fixed cooldown (a truck can sit there far longer than any
+  reasonable cooldown). `WORKER_PRESENCE_GAP_SECONDS` resets that
+  tracking once nothing's been read for a while, so a genuinely
+  different truck arriving later - even in the same spot - still gets
+  logged. Not real multi-object tracking, just a position check between
+  consecutive successful reads; good enough for one truck at a time
+  per line.
 - No DB migrations tool - tables are created with `create_all()` on
   startup. Fine for a fresh deploy; if the schema changes later after
   going live, this needs Alembic (or a manual `ALTER TABLE`).

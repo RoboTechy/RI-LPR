@@ -4,9 +4,11 @@ pipeline (read_plate() from license_plate_extractor.py, using the
 exported ONNX models for CPU-only inference) on a frame every
 WORKER_POLL_INTERVAL_SECONDS, and inserts a DetectedPlate row (plus
 saves the plate/vehicle crop images) whenever a read succeeds and it
-isn't the same plate already logged for that camera within the last
-WORKER_DEDUPE_COOLDOWN_SECONDS - a parked truck would otherwise get
-re-logged on every single poll.
+looks like a DIFFERENT truck than the one last logged on that camera -
+see is_same_truck() for how "different" is decided. A time-based
+cooldown alone isn't enough: a truck can sit at a line for well over
+any reasonable cooldown, and should still only ever produce one active
+entry the whole time it's there.
 
 Also runs test_server's tiny internal HTTP API (the admin panel's
 per-camera "تست ارتباط" button) in the main thread, alongside these
@@ -41,14 +43,33 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 from license_plate_extractor import read_plate  # noqa: E402
 
 from app import models  # noqa: E402
-from app.config import WORKER_DEDUPE_COOLDOWN_SECONDS, WORKER_POLL_INTERVAL_SECONDS  # noqa: E402
+from app.config import (  # noqa: E402
+    WORKER_IOU_SAME_TRUCK_THRESHOLD,
+    WORKER_POLL_INTERVAL_SECONDS,
+    WORKER_PRESENCE_GAP_SECONDS,
+)
 from app.database import Base, SessionLocal, engine  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(threadName)s] %(message)s")
 log = logging.getLogger(__name__)
 
 
+def box_iou(box1, box2):
+    """Intersection-over-union of two (xmin, ymin, xmax, ymax) boxes -
+    how much two reads' vehicle positions overlap, as a 0..1 fraction."""
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+    intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    area1 = max(0.0, box1[2] - box1[0]) * max(0.0, box1[3] - box1[1])
+    area2 = max(0.0, box2[2] - box2[0]) * max(0.0, box2[3] - box2[1])
+    union = area1 + area2 - intersection
+    return intersection / union if union > 0 else 0.0
+
+
 def store_detection(camera_id, chars, plate_text, result):
+    """Inserts a new DetectedPlate row and returns its id."""
     short_format = format_plate_short(chars)
     plate_image_path = save_image(result["plate_crop"], "plates")
     vehicle_image_path = save_image(result["vehicle_crop"], "vehicles")
@@ -69,13 +90,36 @@ def store_detection(camera_id, chars, plate_text, result):
         )
         db.add(detection)
         db.commit()
+        db.refresh(detection)
         log.info("logged plate %s (short: %s) on camera %s", plate_text, short_format, camera_id)
+        return detection.id
+    finally:
+        db.close()
+
+
+def touch_detection(detection_id):
+    """Refreshes detected_at on an existing (not-yet-consumed) row - the
+    same truck is still sitting there, so it shouldn't age out of
+    ACTIVE_PLATE_WINDOW_MINUTES and silently vanish from the extension's
+    list while someone is still working on getting to it."""
+    db = SessionLocal()
+    try:
+        detection = db.query(models.DetectedPlate).get(detection_id)
+        if detection is not None and not detection.consumed:
+            detection.detected_at = datetime.now(timezone.utc)
+            db.commit()
     finally:
         db.close()
 
 
 def camera_loop(camera_id: int):
-    last_plate_at = 0.0
+    # Position of the vehicle in the last SUCCESSFUL read on this camera,
+    # and when that was - used to recognize "still the same truck" by
+    # where it sits in frame rather than by time or exact plate text
+    # (both proved unreliable - see this file's module docstring).
+    last_vehicle_box = None
+    last_seen_at = 0.0
+    last_detection_id = None
 
     while True:
         db = SessionLocal()
@@ -123,17 +167,28 @@ def camera_loop(camera_id: int):
                     chars = [c for c, _conf in result["characters"]]
                     plate_text = "".join(chars)
                     now = time.monotonic()
-                    # Cooldown is per-camera, not per-(camera, exact plate
-                    # text): a truck sitting still gets read on every poll,
-                    # and OCR noise can flip a single character between
-                    # reads (e.g. "12234" vs "12224") - comparing exact
-                    # text let each noisy read slip through as "a new
-                    # plate", logging several near-duplicate rows for one
-                    # truck. Suppressing on time alone, regardless of what
-                    # the text says, fixes that.
-                    if (now - last_plate_at) > WORKER_DEDUPE_COOLDOWN_SECONDS:
-                        store_detection(camera_id, chars, plate_text, result)
-                        last_plate_at = now
+                    vehicle_box = result["vehicle_box"]
+
+                    # Nothing successfully read for a while - whatever was
+                    # last seen here has presumably driven off; the next
+                    # read starts a fresh "is this the same truck" check
+                    # instead of comparing against a stale position.
+                    if last_vehicle_box is not None and (now - last_seen_at) > WORKER_PRESENCE_GAP_SECONDS:
+                        last_vehicle_box = None
+                        last_detection_id = None
+
+                    same_truck = (
+                        last_vehicle_box is not None
+                        and box_iou(vehicle_box, last_vehicle_box) >= WORKER_IOU_SAME_TRUCK_THRESHOLD
+                    )
+                    if same_truck:
+                        if last_detection_id is not None:
+                            touch_detection(last_detection_id)
+                    else:
+                        last_detection_id = store_detection(camera_id, chars, plate_text, result)
+
+                    last_vehicle_box = vehicle_box
+                    last_seen_at = now
 
                 time.sleep(WORKER_POLL_INTERVAL_SECONDS)
         finally:

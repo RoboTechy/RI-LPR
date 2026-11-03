@@ -39,9 +39,18 @@ MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 # How often (seconds) a worker thread grabs a frame from its camera.
 WORKER_POLL_INTERVAL_SECONDS = float(os.environ.get("WORKER_POLL_INTERVAL_SECONDS", "3"))
 
-# Don't re-post the same plate for the same camera more often than this -
-# a parked truck gets read the same way on every poll otherwise.
-WORKER_DEDUPE_COOLDOWN_SECONDS = float(os.environ.get("WORKER_DEDUPE_COOLDOWN_SECONDS", "300"))
+# A truck is considered "the same one still sitting there" (no new
+# DetectedPlate row - its existing row's timestamp is just refreshed
+# instead) when a later read's vehicle box overlaps this much (IoU,
+# 0..1) with the last read's - matched by position, not by plate text,
+# since OCR can misread a single character between polls.
+WORKER_IOU_SAME_TRUCK_THRESHOLD = float(os.environ.get("WORKER_IOU_SAME_TRUCK_THRESHOLD", "0.6"))
+
+# If no plate is successfully read on a camera for longer than this
+# (seconds), whatever truck was last seen there is assumed to have left -
+# the next successful read starts a fresh "same truck?" comparison
+# instead of matching against that stale position.
+WORKER_PRESENCE_GAP_SECONDS = float(os.environ.get("WORKER_PRESENCE_GAP_SECONDS", "30"))
 
 # Where the worker container's internal test API (test_server.py) is
 # reachable from the api container, over the Compose network - backs
