@@ -2,15 +2,16 @@
 {% block title %}کاربران - RI-LPR{% endblock %}
 {% block content %}
 <div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center;">
+  <div class="card-header">
     <h3>کاربران پنل مدیریت</h3>
     <a class="btn" href="/admin/users/new">+ افزودن کاربر</a>
   </div>
+  {% if users %}
   <table>
     <thead>
       <tr>
         <th>نام کاربری</th>
-        <th>مدیر کل</th>
+        <th>سطح دسترسی</th>
         <th>دسترسی به دوربین‌ها</th>
         <th></th>
       </tr>
@@ -18,26 +19,32 @@
     <tbody>
       {% for u in users %}
       <tr>
-        <td>{{ u.username }}</td>
-        <td>{{ "✅" if u.is_superuser else "❌" }}</td>
+        <td><strong>{{ u.username }}</strong></td>
         <td>
-          {% if u.is_superuser %}همه{% else %}
-            {% for c in u.cameras %}<span class="badge">{{ c.name }}</span>{% endfor %}
-          {% endif %}
+          {% if u.is_superuser %}<span class="pill success">مدیر کل</span>
+          {% else %}<span class="pill neutral">محدود</span>{% endif %}
         </td>
         <td>
-          <a class="btn secondary" href="/admin/users/{{ u.id }}/edit">ویرایش</a>
-          {% if u.id != admin.id %}
-          <form class="inline" method="post" action="/admin/users/{{ u.id }}/delete" onsubmit="return confirm('حذف شود؟');">
-            <button class="btn danger" type="submit">حذف</button>
-          </form>
-          {% endif %}
+          {% if u.is_superuser %}<span class="hint">دسترسی به همه دوربین‌ها</span>
+          {% elif u.cameras %}{% for c in u.cameras %}<span class="badge">{{ c.name }}</span>{% endfor %}
+          {% else %}<span class="hint">بدون دسترسی</span>{% endif %}
+        </td>
+        <td>
+          <div class="actions">
+            <a class="btn secondary sm" href="/admin/users/{{ u.id }}/edit">ویرایش</a>
+            {% if u.id != admin.id %}
+            <form class="inline" method="post" action="/admin/users/{{ u.id }}/delete" onsubmit="return confirm('حذف شود؟');">
+              <button class="btn danger sm" type="submit">حذف</button>
+            </form>
+            {% endif %}
+          </div>
         </td>
       </tr>
-      {% else %}
-      <tr><td colspan="4">هیچ کاربری ثبت نشده</td></tr>
       {% endfor %}
     </tbody>
   </table>
+  {% else %}
+  <div class="empty-state">هیچ کاربری ثبت نشده</div>
+  {% endif %}
 </div>
 {% endblock %}

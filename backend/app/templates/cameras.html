@@ -2,41 +2,48 @@
 {% block title %}دوربین‌ها - RI-LPR{% endblock %}
 {% block content %}
 <div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center;">
+  <div class="card-header">
     <h3>دوربین‌ها / لاین‌ها</h3>
     <a class="btn" href="/admin/cameras/new">+ افزودن دوربین</a>
   </div>
+  {% if cameras %}
   <table>
     <thead>
       <tr>
         <th>لاین</th>
         <th>نام</th>
         <th>آدرس RTSP</th>
-        <th>فعال</th>
+        <th>وضعیت</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for cam in cameras %}
       <tr>
-        <td>{{ cam.line_number }}</td>
+        <td><strong>{{ cam.line_number }}</strong></td>
         <td>{{ cam.name }}</td>
-        <td>{{ cam.rtsp_ip }}:{{ cam.rtsp_port }}</td>
-        <td>{{ "✅" if cam.is_active else "❌" }}</td>
+        <td style="direction:ltr;text-align:right;color:var(--text-muted);">{{ cam.rtsp_ip }}:{{ cam.rtsp_port }}</td>
         <td>
-          <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/test">
-            <button class="btn" type="submit">تست ارتباط</button>
-          </form>
-          <a class="btn secondary" href="/admin/cameras/{{ cam.id }}/edit">ویرایش</a>
-          <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/delete" onsubmit="return confirm('حذف شود؟');">
-            <button class="btn danger" type="submit">حذف</button>
-          </form>
+          {% if cam.is_active %}<span class="pill success">فعال</span>
+          {% else %}<span class="pill danger">غیرفعال</span>{% endif %}
+        </td>
+        <td>
+          <div class="actions">
+            <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/test">
+              <button class="btn sm" type="submit">تست ارتباط</button>
+            </form>
+            <a class="btn secondary sm" href="/admin/cameras/{{ cam.id }}/edit">ویرایش</a>
+            <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/delete" onsubmit="return confirm('حذف شود؟');">
+              <button class="btn danger sm" type="submit">حذف</button>
+            </form>
+          </div>
         </td>
       </tr>
-      {% else %}
-      <tr><td colspan="5">هیچ دوربینی ثبت نشده</td></tr>
       {% endfor %}
     </tbody>
   </table>
+  {% else %}
+  <div class="empty-state">هیچ دوربینی ثبت نشده</div>
+  {% endif %}
 </div>
 {% endblock %}

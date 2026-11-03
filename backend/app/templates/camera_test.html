@@ -1,31 +1,33 @@
 {% extends "base.html" %}
 {% block title %}تست دوربین - RI-LPR{% endblock %}
 {% block content %}
-<div class="card" style="max-width:640px;">
-  <h3>تست ارتباط - {{ camera.name if camera else "دوربین نامشخص" }}{% if camera %} (لاین {{ camera.line_number }}){% endif %}</h3>
+<div class="card" style="max-width:680px;">
+  <div class="card-header">
+    <h3>تست ارتباط - {{ camera.name if camera else "دوربین نامشخص" }}{% if camera %} <span class="pill neutral">لاین {{ camera.line_number }}</span>{% endif %}</h3>
+  </div>
 
   {% if not result.success %}
     <div class="error">{{ result.error }}</div>
   {% else %}
-    <p style="color:#16a34a;">اتصال برقرار شد ✅</p>
+    <div class="success-banner">اتصال برقرار شد ✓</div>
 
     {% if result.image_path %}
-      <img src="/media/{{ result.image_path }}" style="max-width:100%;border-radius:6px;border:1px solid #ddd;">
+      <img src="/media/{{ result.image_path }}" style="max-width:100%;border-radius:var(--radius);border:1px solid var(--border);display:block;">
     {% endif %}
 
-    <div class="card" style="margin-top:12px;background:#fafafa;">
+    <div class="card" style="margin-top:16px;background:var(--surface-alt);box-shadow:none;">
       {% if result.ocr_success %}
-        <div>پلاک تشخیص داده‌شده:</div>
-        <div style="font-size:22px;font-weight:bold;margin-top:4px;">{{ result.ocr_text }}</div>
+        <div class="hint">پلاک تشخیص داده‌شده</div>
+        <div style="font-size:24px;font-weight:800;margin-top:4px;">{{ result.ocr_text }}</div>
       {% else %}
-        <div style="color:#dc2626;">پلاک با اطمینان کافی تشخیص داده نشد</div>
-        {% if result.ocr_reason %}<div style="font-size:13px;color:#666;margin-top:4px;">دلیل: {{ result.ocr_reason }}</div>{% endif %}
-        {% if result.characters_detected %}<div style="font-size:13px;color:#666;margin-top:4px;">کاراکترهای شناسایی‌شده: {{ result.characters_detected }}</div>{% endif %}
+        <span class="pill danger">پلاک با اطمینان کافی تشخیص داده نشد</span>
+        {% if result.ocr_reason %}<div class="hint" style="margin-top:8px;">دلیل: {{ result.ocr_reason }}</div>{% endif %}
+        {% if result.characters_detected %}<div class="hint" style="margin-top:4px;">کاراکترهای شناسایی‌شده: {{ result.characters_detected }}</div>{% endif %}
       {% endif %}
     </div>
   {% endif %}
 
-  <div style="margin-top:16px;">
+  <div class="form-actions">
     {% if camera %}
     <form class="inline" method="post" action="/admin/cameras/{{ camera.id }}/test">
       <button class="btn" type="submit">تست مجدد</button>

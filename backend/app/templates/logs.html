@@ -2,11 +2,14 @@
 {% block title %}گزارش‌ها - RI-LPR{% endblock %}
 {% block content %}
 <div class="card">
-  <h3>گزارش ورود/خروج</h3>
-  <form method="get" action="/admin/logs" style="display:flex;gap:8px;margin-bottom:12px;">
+  <div class="card-header"><h3>گزارش ورود/خروج</h3></div>
+  <form method="get" action="/admin/logs" style="display:flex;gap:8px;margin-bottom:18px;">
     <input type="text" name="plate" value="{{ plate }}" placeholder="جستجو بر اساس شماره پلاک">
-    <button class="btn" type="submit">جستجو</button>
+    <button class="btn" type="submit" style="white-space:nowrap;">جستجو</button>
   </form>
+
+  {% if logs %}
+  <div style="overflow-x:auto;">
   <table>
     <thead>
       <tr>
@@ -26,8 +29,8 @@
       {% for log in logs %}
       <tr>
         <td>{{ jalali(log.created_at) }}</td>
-        <td>{{ log.plate or "-" }}</td>
-        <td>{{ "بارگیری" if log.page_type == "shipping" else "تخلیه" }}</td>
+        <td><strong>{{ log.plate or "-" }}</strong></td>
+        <td><span class="pill neutral">{{ "بارگیری" if log.page_type == "shipping" else "تخلیه" }}</span></td>
         <td>{{ log.transporter or "-" }}</td>
         <td>{{ log.plant or "-" }}</td>
         <td>{{ log.loading_point or "-" }}</td>
@@ -44,14 +47,16 @@
         </td>
         <td>{{ log.operator_computer_ip or "-" }}</td>
       </tr>
-      {% else %}
-      <tr><td colspan="10">موردی یافت نشد</td></tr>
       {% endfor %}
     </tbody>
   </table>
-  <div style="margin-top:12px;">
-    {% if has_prev %}<a class="btn secondary" href="/admin/logs?plate={{ plate }}&page={{ page - 1 }}">قبلی</a>{% endif %}
-    {% if has_next %}<a class="btn secondary" href="/admin/logs?plate={{ plate }}&page={{ page + 1 }}">بعدی</a>{% endif %}
   </div>
+  <div class="pagination">
+    {% if has_prev %}<a class="btn secondary sm" href="/admin/logs?plate={{ plate }}&page={{ page - 1 }}">◀ قبلی</a>{% endif %}
+    {% if has_next %}<a class="btn secondary sm" href="/admin/logs?plate={{ plate }}&page={{ page + 1 }}">بعدی ▶</a>{% endif %}
+  </div>
+  {% else %}
+  <div class="empty-state">موردی یافت نشد</div>
+  {% endif %}
 </div>
 {% endblock %}

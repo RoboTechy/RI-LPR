@@ -2,24 +2,36 @@
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}RI-LPR{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/admin/static/style.css">
 </head>
 <body>
   {% if admin %}
-  <div class="topbar">
-    <div class="brand">RI-LPR - پنل مدیریت</div>
-    <div>
-      <a href="/admin">داشبورد</a>
-      <a href="/admin/cameras">دوربین‌ها</a>
-      {% if admin.is_superuser %}<a href="/admin/users">کاربران</a>{% endif %}
-      <a href="/admin/logs">گزارش‌ها</a>
-      <a href="/admin/logout">خروج ({{ admin.username }})</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark">RI</span>
+        <span class="brand-text">RI-LPR <small>پنل مدیریت</small></span>
+      </div>
+      <nav class="nav">
+        <a href="/admin">داشبورد</a>
+        <a href="/admin/cameras">دوربین‌ها</a>
+        {% if admin.is_superuser %}<a href="/admin/users">کاربران</a>{% endif %}
+        <a href="/admin/logs">گزارش‌ها</a>
+      </nav>
+      <div class="nav-user">
+        <span class="nav-user-name">{{ admin.username }}</span>
+        <a class="btn secondary sm" href="/admin/logout">خروج</a>
+      </div>
     </div>
-  </div>
+  </header>
   {% endif %}
-  <div class="container">
+  <main class="container">
     {% block content %}{% endblock %}
-  </div>
+  </main>
 </body>
 </html>

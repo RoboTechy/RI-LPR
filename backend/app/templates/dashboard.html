@@ -3,13 +3,20 @@
 {% block content %}
 <div class="card">
   <div class="stat-grid">
-    <div class="stat"><div class="num">{{ camera_count }}</div><div>دوربین‌ها</div></div>
-    <div class="stat"><div class="num">{{ log_count }}</div><div>مجموع ثبت‌ها</div></div>
+    <div class="stat">
+      <div class="num">{{ camera_count }}</div>
+      <div class="label">دوربین‌ها</div>
+    </div>
+    <div class="stat">
+      <div class="num">{{ log_count }}</div>
+      <div class="label">مجموع ثبت‌ها</div>
+    </div>
   </div>
 </div>
 
 <div class="card">
-  <h3>آخرین ثبت‌ها</h3>
+  <div class="card-header"><h3>آخرین ثبت‌ها</h3></div>
+  {% if recent_logs %}
   <table>
     <thead>
       <tr>
@@ -25,14 +32,15 @@
       <tr>
         <td>{{ jalali(log.created_at) }}</td>
         <td>{{ log.plate or "-" }}</td>
-        <td>{{ "بارگیری" if log.page_type == "shipping" else "تخلیه" }}</td>
+        <td><span class="pill neutral">{{ "بارگیری" if log.page_type == "shipping" else "تخلیه" }}</span></td>
         <td>{{ log.vehicle or "-" }}</td>
         <td>{{ log.operator_computer_ip or "-" }}</td>
       </tr>
-      {% else %}
-      <tr><td colspan="5">هنوز هیچ ثبتی وجود ندارد</td></tr>
       {% endfor %}
     </tbody>
   </table>
+  {% else %}
+  <div class="empty-state">هنوز هیچ ثبتی وجود ندارد</div>
+  {% endif %}
 </div>
 {% endblock %}

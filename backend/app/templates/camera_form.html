@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}دوربین - RI-LPR{% endblock %}
 {% block content %}
-<div class="card" style="max-width:480px;">
+<div class="card form-card">
   <h3>{{ "ویرایش دوربین" if camera else "افزودن دوربین" }}</h3>
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
   <form method="post" action="{{ '/admin/cameras/' ~ camera.id ~ '/edit' if camera else '/admin/cameras/new' }}">
@@ -25,13 +25,16 @@
 
     <label>مسیر RTSP</label>
     <input type="text" name="rtsp_path" value="{{ camera.rtsp_path if camera else '/Streaming/Channels/101' }}">
+    <div class="hint">برندهای مختلف مسیر متفاوتی دارن - Hikvision: /Streaming/Channels/101، Dahua: /cam/realmonitor?channel=1&amp;subtype=0</div>
 
     <label>آدرس کامل RTSP (اختیاری - اگه پر بشه، به‌جای فیلدهای بالا استفاده می‌شه)</label>
     <input type="text" name="rtsp_url_override" value="{{ camera.rtsp_url_override if camera and camera.rtsp_url_override else '' }}">
 
-    <label><input type="checkbox" name="is_active" {{ "checked" if (camera is none) or camera.is_active else "" }} style="width:auto;display:inline;"> فعال</label>
+    <div class="checkbox-row">
+      <label><input type="checkbox" name="is_active" {{ "checked" if (camera is none) or camera.is_active else "" }}> فعال</label>
+    </div>
 
-    <div style="margin-top:16px;">
+    <div class="form-actions">
       <button class="btn" type="submit">ذخیره</button>
       <a class="btn secondary" href="/admin/cameras">انصراف</a>
     </div>
