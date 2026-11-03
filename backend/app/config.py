@@ -36,3 +36,8 @@ WORKER_POLL_INTERVAL_SECONDS = float(os.environ.get("WORKER_POLL_INTERVAL_SECOND
 # Don't re-post the same plate for the same camera more often than this -
 # a parked truck gets read the same way on every poll otherwise.
 WORKER_DEDUPE_COOLDOWN_SECONDS = float(os.environ.get("WORKER_DEDUPE_COOLDOWN_SECONDS", "300"))
+
+# Where the worker container's internal test API (test_server.py) is
+# reachable from the api container, over the Compose network - backs
+# the admin panel's per-camera "تست ارتباط" button.
+WORKER_INTERNAL_URL = os.environ.get("WORKER_INTERNAL_URL", "http://worker:9000")

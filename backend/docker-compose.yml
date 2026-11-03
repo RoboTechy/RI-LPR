@@ -16,11 +16,16 @@ services:
     restart: unless-stopped
     depends_on:
       - db
+      - worker
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg2://ri_lpr:ri_lpr@db:5432/ri_lpr
       MEDIA_ROOT: /app/backend/media
+      # the admin panel's "تست ارتباط" button calls the worker's own
+      # internal test API over the compose network - see
+      # worker/test_server.py.
+      WORKER_INTERNAL_URL: http://worker:9000
     ports:
       - "8000:8000"
     volumes:
@@ -38,6 +43,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://ri_lpr:ri_lpr@db:5432/ri_lpr
       MEDIA_ROOT: /app/backend/media
+    expose:
+      - "9000"  # internal only - test_server.py, never published to the host
     volumes:
       - media_data:/app/backend/media
 

@@ -1,12 +1,13 @@
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from .. import models
-from ..config import DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME
+from ..config import DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME, WORKER_INTERNAL_URL
 from ..database import get_db
 from ..jalali import to_jalali_str
 from ..security import get_current_admin, hash_password, verify_password
@@ -173,6 +174,29 @@ def camera_delete(
         db.delete(camera)
         db.commit()
     return RedirectResponse("/admin/cameras", status_code=303)
+
+
+@router.post("/cameras/{camera_id}/test")
+def camera_test(
+    camera_id: int, request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)
+):
+    camera = db.query(models.Camera).get(camera_id)
+    result = {"success": False, "error": "دوربین پیدا نشد"}
+    if camera is not None:
+        try:
+            # the api container has none of the ML dependencies on
+            # purpose (see backend/Dockerfile vs Dockerfile.worker) -
+            # the worker container, which already has them, does the
+            # actual connect + inference and we just call it.
+            resp = httpx.post(f"{WORKER_INTERNAL_URL}/test-camera/{camera_id}", timeout=30)
+            resp.raise_for_status()
+            result = resp.json()
+        except httpx.HTTPError as exc:
+            result = {"success": False, "error": f"سرویس پردازش تصویر در دسترس نیست: {exc}"}
+
+    return templates.TemplateResponse(
+        request, "camera_test.html", {"admin": admin, "camera": camera, "result": result}
+    )
 
 
 # ----------------------------------------------------------------- users ---

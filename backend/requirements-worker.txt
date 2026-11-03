@@ -10,3 +10,8 @@ onnx
 onnxruntime
 onnxslim
 open-image-models[onnx]
+
+# tiny internal HTTP API for the admin panel's per-camera "تست ارتباط"
+# button (test_server.py) - see its own docstring.
+fastapi==0.115.6
+uvicorn[standard]==0.32.1

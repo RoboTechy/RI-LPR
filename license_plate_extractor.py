@@ -162,7 +162,7 @@ def _detect_plate_box(cropped_vehicle_image, plate_model_path):
 
 def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
                            plate_model_path=DEFAULT_PLATE_MODEL_PATH,
-                           return_vehicle_crop=False):
+                           return_vehicle_crop=False, return_plate_box=False):
     """Detect the car/truck, then the plate within it, and return the cropped plate image (RGB).
 
     Split out of extract_digits() so other pipelines (e.g. a character
@@ -172,6 +172,12 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
     return_vehicle_crop=True also returns the cropped vehicle image, as
     (plate_crop, vehicle_crop) - both images are wanted for the
     production audit log (see read_plate()), not just the plate.
+
+    return_plate_box=True also returns the plate's (xmin, ymin, xmax,
+    ymax) in the *vehicle crop's* coordinate space (i.e. where to draw a
+    box on vehicle_crop to highlight the plate) - used by the admin
+    panel's per-camera connection test. Appended after vehicle_crop if
+    both are requested.
     """
     # find the biggest car/truck in the image
     yolo_model = YOLO("yolo11n.pt")
@@ -243,8 +249,12 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
         if show:
             plt.show()
 
+    if return_vehicle_crop and return_plate_box:
+        return cropped_license_image, cropped_car_image, license_box
     if return_vehicle_crop:
         return cropped_license_image, cropped_car_image
+    if return_plate_box:
+        return cropped_license_image, license_box
     return cropped_license_image
 
 
@@ -370,9 +380,12 @@ def read_plate(image_name, char_model_path=DEFAULT_CHAR_MODEL_PATH,
         reason: str or None - why success is False
         plate_crop: the cropped plate image (RGB numpy array)
         vehicle_crop: the cropped vehicle image (RGB numpy array)
+        plate_box: (xmin, ymin, xmax, ymax) of the plate within
+                   vehicle_crop - where to draw a box around it
     """
-    plate_crop, vehicle_crop = detect_and_crop_plate(
-        image_name, plate_model_path=plate_model_path, return_vehicle_crop=True)
+    plate_crop, vehicle_crop, plate_box = detect_and_crop_plate(
+        image_name, plate_model_path=plate_model_path,
+        return_vehicle_crop=True, return_plate_box=True)
 
     char_model = _get_char_detector(char_model_path)
     results = char_model(plate_crop, verbose=False)[0]
@@ -395,6 +408,7 @@ def read_plate(image_name, char_model_path=DEFAULT_CHAR_MODEL_PATH,
             "reason": reason,
             "plate_crop": plate_crop,
             "vehicle_crop": vehicle_crop,
+            "plate_box": plate_box,
         }
 
     if len(characters) != PLATE_LENGTH:
@@ -415,5 +429,6 @@ def read_plate(image_name, char_model_path=DEFAULT_CHAR_MODEL_PATH,
         "reason": None,
         "plate_crop": plate_crop,
         "vehicle_crop": vehicle_crop,
+        "plate_box": plate_box,
     }
 

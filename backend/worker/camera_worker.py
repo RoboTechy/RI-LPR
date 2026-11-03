@@ -8,6 +8,10 @@ isn't the same plate already logged for that camera within the last
 WORKER_DEDUPE_COOLDOWN_SECONDS - a parked truck would otherwise get
 re-logged on every single poll.
 
+Also runs test_server's tiny internal HTTP API (the admin panel's
+per-camera "تست ارتباط" button) in the main thread, alongside these
+camera-reading loops in daemon background threads - see test_server.py.
+
 Runs as its own container (see ../docker-compose.yml), separate from
 the FastAPI app, so a stuck/unreachable camera can't affect the API or
 admin panel.
@@ -19,47 +23,29 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
 
 import cv2
+import uvicorn
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+from pipeline_utils import (  # noqa: E402
+    CHAR_MODEL_PATH,
+    PLATE_MODEL_PATH,
+    REPO_ROOT,
+    format_plate_short,
+    save_image,
+)
+
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
 from license_plate_extractor import read_plate  # noqa: E402
 
 from app import models  # noqa: E402
-from app.config import (  # noqa: E402
-    MEDIA_ROOT,
-    WORKER_DEDUPE_COOLDOWN_SECONDS,
-    WORKER_POLL_INTERVAL_SECONDS,
-)
+from app.config import WORKER_DEDUPE_COOLDOWN_SECONDS, WORKER_POLL_INTERVAL_SECONDS  # noqa: E402
 from app.database import Base, SessionLocal, engine  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(threadName)s] %(message)s")
 log = logging.getLogger(__name__)
-
-PLATE_MODEL_PATH = str(REPO_ROOT / "models" / "ir_lpr_plate_detector.onnx")
-CHAR_MODEL_PATH = str(REPO_ROOT / "models" / "ir_lpr_char_detector.onnx")
-
-
-def format_plate_short(chars):
-    """Mirrors extension/content.js's formatPlateShort() - must stay in
-    sync with it: strip the letter (index 2), write the remaining digits
-    as "{first2+mid3}/{last2}"."""
-    first5 = chars[0] + chars[1] + chars[3] + chars[4] + chars[5]
-    last2 = chars[6] + chars[7]
-    return f"{first5}/{last2}"
-
-
-def save_image(img_rgb, subfolder):
-    filename = f"{uuid4().hex}.jpg"
-    path = MEDIA_ROOT / subfolder / filename
-    bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-    # compressed - these accumulate indefinitely, keep each one small.
-    cv2.imwrite(str(path), bgr, [cv2.IMWRITE_JPEG_QUALITY, 70])
-    return f"{subfolder}/{filename}"
 
 
 def store_detection(camera_id, chars, plate_text, result):
@@ -162,14 +148,16 @@ def main():
     if not camera_ids:
         log.warning("no active cameras configured yet - add them from the admin panel, then restart this worker")
 
-    threads = []
     for camera_id in camera_ids:
-        t = threading.Thread(target=camera_loop, args=(camera_id,), name=f"camera-{camera_id}", daemon=True)
-        t.start()
-        threads.append(t)
+        threading.Thread(target=camera_loop, args=(camera_id,), name=f"camera-{camera_id}", daemon=True).start()
 
-    for t in threads:
-        t.join()
+    # the per-camera connection-test API the admin panel calls - runs in
+    # the main thread (blocks here), camera loops above keep running as
+    # daemon threads for as long as this process is alive.
+    from test_server import app  # noqa: E402 - imported here so its own sys.path setup doesn't race camera_loop's
+
+    log.info("starting internal test-connection API on :9000")
+    uvicorn.run(app, host="0.0.0.0", port=9000, log_level="warning")
 
 
 if __name__ == "__main__":
