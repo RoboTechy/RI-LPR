@@ -3,10 +3,19 @@
 {% block content %}
 <div class="card" style="max-width:680px;">
   <div class="card-header">
-    <h3>تست ارتباط - {{ camera.name if camera else "دوربین نامشخص" }}{% if camera %} <span class="pill neutral">لاین {{ camera.line_number }}</span>{% endif %}</h3>
+    <h3>{{ camera.name if camera else "دوربین نامشخص" }}{% if camera %} <span class="pill neutral">لاین {{ camera.line_number }}</span>{% endif %}</h3>
   </div>
 
-  {% if not result.success %}
+  {% if camera %}
+  <div class="hint" style="margin-bottom:8px;">پخش زنده</div>
+  <img src="/admin/cameras/{{ camera.id }}/stream" style="max-width:100%;border-radius:var(--radius);border:1px solid var(--border);display:block;background:#000;">
+  {% endif %}
+
+  <div class="card-header" style="margin-top:22px;"><h3>نتیجه آخرین تست تشخیص</h3></div>
+
+  {% if result is none %}
+    <div class="hint">هنوز تستی اجرا نشده - دکمه «تست تشخیص پلاک» رو بزن.</div>
+  {% elif not result.success %}
     <div class="error">{{ result.error }}</div>
   {% else %}
     <div class="success-banner">اتصال برقرار شد ✓</div>
@@ -30,7 +39,7 @@
   <div class="form-actions">
     {% if camera %}
     <form class="inline" method="post" action="/admin/cameras/{{ camera.id }}/test">
-      <button class="btn" type="submit">تست مجدد</button>
+      <button class="btn" type="submit">تست تشخیص پلاک</button>
     </form>
     {% endif %}
     <a class="btn secondary" href="/admin/cameras">بازگشت به لیست دوربین‌ها</a>

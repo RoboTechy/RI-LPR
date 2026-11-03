@@ -2,7 +2,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -176,6 +176,20 @@ def camera_delete(
     return RedirectResponse("/admin/cameras", status_code=303)
 
 
+@router.get("/cameras/{camera_id}/test")
+def camera_test_view(
+    camera_id: int, request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)
+):
+    """Just the live stream + whatever the last test happened to show -
+    no new detection test run (that's the POST below, triggered by the
+    page's own button). Lets "پخش زنده" link straight here without
+    forcing a detection run first."""
+    camera = db.query(models.Camera).get(camera_id)
+    return templates.TemplateResponse(
+        request, "camera_test.html", {"admin": admin, "camera": camera, "result": None}
+    )
+
+
 @router.post("/cameras/{camera_id}/test")
 def camera_test(
     camera_id: int, request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)
@@ -197,6 +211,21 @@ def camera_test(
     return templates.TemplateResponse(
         request, "camera_test.html", {"admin": admin, "camera": camera, "result": result}
     )
+
+
+@router.get("/cameras/{camera_id}/stream")
+def camera_stream(camera_id: int, admin: models.AdminUser = Depends(get_current_admin)):
+    """Proxies the worker's raw MJPEG feed (see worker/test_server.py's
+    stream_camera()) so the browser - which can't reach the worker
+    container directly, only the Compose network can - gets a live
+    <img> preview instead of the one-snapshot-per-click test result."""
+
+    def proxy():
+        with httpx.stream("GET", f"{WORKER_INTERNAL_URL}/stream-camera/{camera_id}", timeout=None) as resp:
+            for chunk in resp.iter_bytes():
+                yield chunk
+
+    return StreamingResponse(proxy(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
 # ----------------------------------------------------------------- users ---

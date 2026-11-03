@@ -29,9 +29,7 @@
         </td>
         <td>
           <div class="actions">
-            <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/test">
-              <button class="btn sm" type="submit">تست ارتباط</button>
-            </form>
+            <a class="btn sm" href="/admin/cameras/{{ cam.id }}/test">پخش زنده / تست</a>
             <a class="btn secondary sm" href="/admin/cameras/{{ cam.id }}/edit">ویرایش</a>
             <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/delete" onsubmit="return confirm('حذف شود؟');">
               <button class="btn danger sm" type="submit">حذف</button>

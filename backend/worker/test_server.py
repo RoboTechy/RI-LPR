@@ -16,7 +16,8 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 
 import cv2
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 
 from pipeline_utils import CHAR_MODEL_PATH, PLATE_MODEL_PATH, save_image
 
@@ -27,6 +28,7 @@ from license_plate_extractor import read_plate  # noqa: E402
 app = FastAPI(title="RI-LPR worker internal test API")
 
 CONNECT_TIMEOUT_SECONDS = 10
+STREAM_JPEG_QUALITY = 60
 
 
 def _grab_one_frame(rtsp_url):
@@ -127,3 +129,46 @@ def test_camera(camera_id: int):
         "characters_detected": characters_detected,
         "image_path": image_path,
     }
+
+
+@app.get("/stream-camera/{camera_id}")
+def stream_camera(camera_id: int):
+    """Raw MJPEG passthrough (no inference - just the live feed, so it
+    stays cheap even while an admin leaves this open) for the "why isn't
+    this live" complaint about the test page only showing a snapshot per
+    click. A second, independent RTSP connection from the one
+    camera_loop() keeps open for actual detection - most cameras handle
+    a couple of concurrent viewers fine for a short admin session."""
+    db = SessionLocal()
+    try:
+        camera = db.query(models.Camera).get(camera_id)
+        if camera is None:
+            raise HTTPException(status_code=404, detail="camera not found")
+        rtsp_url = camera.rtsp_url
+    finally:
+        db.close()
+
+    def generate():
+        cap = cv2.VideoCapture(rtsp_url)
+        if not cap.isOpened():
+            cap.release()
+            return
+        try:
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                ok2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, STREAM_JPEG_QUALITY])
+                if not ok2:
+                    continue
+                yield (
+                    b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                    + str(len(buf)).encode()
+                    + b"\r\n\r\n"
+                    + buf.tobytes()
+                    + b"\r\n"
+                )
+        finally:
+            cap.release()
+
+    return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
