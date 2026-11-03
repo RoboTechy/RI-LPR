@@ -48,6 +48,20 @@ services:
     volumes:
       - media_data:/app/backend/media
 
+networks:
+  default:
+    ipam:
+      config:
+        # Docker's auto-assigned default (something in 172.1[7-9].0.0/16)
+        # collided with the real camera VLAN (172.18.28.0/24) - the
+        # host's own routing table then sent traffic meant for the
+        # cameras into this bridge instead of the real NIC, breaking
+        # connectivity to them even from the host itself (not just from
+        # containers). Pinned to a range far from anything in use here
+        # (172.16.x - Rahkaran, 172.18.x - cameras, 192.168.201.x - this
+        # server) to avoid it happening again.
+        - subnet: 10.90.90.0/24
+
 volumes:
   db_data:
   media_data:
