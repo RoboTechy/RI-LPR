@@ -5,10 +5,18 @@ exported ONNX models for CPU-only inference) on a frame every
 WORKER_POLL_INTERVAL_SECONDS, and inserts a DetectedPlate row (plus
 saves the plate/vehicle crop images) whenever a read succeeds and it
 looks like a DIFFERENT truck than the one last logged on that camera -
-see is_same_truck() for how "different" is decided. A time-based
-cooldown alone isn't enough: a truck can sit at a line for well over
-any reasonable cooldown, and should still only ever produce one active
-entry the whole time it's there.
+see box_iou() and camera_loop()'s same_truck check for how "different"
+is decided. A time-based cooldown alone isn't enough: a truck can sit
+at a line for well over any reasonable cooldown, and should still only
+ever produce one active entry the whole time it's there.
+
+A vehicle still counts as "present" (keeping the tracked position/entry
+alive) even on a frame where its plate specifically couldn't be read -
+e.g. someone briefly walking in front of just the plate - as opposed to
+a frame where no vehicle was found at all; only the latter counts
+toward WORKER_PRESENCE_GAP_SECONDS. Otherwise a person obstructing the
+plate for longer than that gap would make a still-parked truck look
+like it had left and a new one arrived, re-logging it.
 
 Also runs test_server's tiny internal HTTP API (the admin panel's
 per-camera "تست ارتباط" button) in the main thread, alongside these
@@ -149,6 +157,7 @@ def camera_loop(camera_id: int):
                     break
 
                 tmp_path = None
+                vehicle_still_present = False  # a vehicle was found this frame, even if its plate wasn't readable
                 try:
                     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
                         tmp_path = tmp.name
@@ -156,6 +165,23 @@ def camera_loop(camera_id: int):
                     result = read_plate(
                         tmp_path, char_model_path=CHAR_MODEL_PATH, plate_model_path=PLATE_MODEL_PATH
                     )
+                    # detect_and_crop_plate() only raises before this point
+                    # (see below) - reaching here means a vehicle (and a
+                    # plate box within it) was found, whether or not the
+                    # characters on it were readable.
+                    vehicle_still_present = True
+                except ValueError as exc:
+                    result = None
+                    # "No license plate detected..." means a vehicle WAS
+                    # found - someone briefly standing in front of just the
+                    # plate (the reported case) still leaves the vehicle
+                    # itself visible. Only "No cars or trucks detected"
+                    # means there's really nothing there. Distinguishing
+                    # matters here: treating the first case as "gone" would
+                    # let the presence-gap timer below expire during a
+                    # person simply walking past, re-logging the same
+                    # still-parked truck as if it were a new one.
+                    vehicle_still_present = "No license plate detected" in str(exc)
                 except Exception:
                     log.exception("read_plate() failed on a frame from line %s", line_number)
                     result = None
@@ -163,12 +189,9 @@ def camera_loop(camera_id: int):
                     if tmp_path:
                         Path(tmp_path).unlink(missing_ok=True)
 
-                if result and result["success"]:
-                    chars = [c for c, _conf in result["characters"]]
-                    plate_text = "".join(chars)
-                    now = time.monotonic()
-                    vehicle_box = result["vehicle_box"]
+                now = time.monotonic()
 
+                if vehicle_still_present:
                     # Nothing successfully read for a while - whatever was
                     # last seen here has presumably driven off; the next
                     # read starts a fresh "is this the same truck" check
@@ -177,17 +200,36 @@ def camera_loop(camera_id: int):
                         last_vehicle_box = None
                         last_detection_id = None
 
+                    vehicle_box = result["vehicle_box"] if result else last_vehicle_box
                     same_truck = (
                         last_vehicle_box is not None
+                        and vehicle_box is not None
                         and box_iou(vehicle_box, last_vehicle_box) >= WORKER_IOU_SAME_TRUCK_THRESHOLD
                     )
-                    if same_truck:
+                    if not same_truck:
+                        # tracking a new candidate position - nothing
+                        # logged for it yet, so there's nothing to touch
+                        # until a successful read confirms it (invariant:
+                        # last_detection_id is only ever set for a
+                        # detection whose position matches last_vehicle_box).
+                        last_detection_id = None
+
+                    if result and result["success"]:
+                        chars = [c for c, _conf in result["characters"]]
+                        plate_text = "".join(chars)
                         if last_detection_id is not None:
                             touch_detection(last_detection_id)
-                    else:
-                        last_detection_id = store_detection(camera_id, chars, plate_text, result)
+                        else:
+                            last_detection_id = store_detection(camera_id, chars, plate_text, result)
+                    elif last_detection_id is not None:
+                        # vehicle confirmed still in the same spot, but no
+                        # trustworthy plate text this frame (occluded,
+                        # unreadable, ...) - nothing new to log, just keep
+                        # the existing entry from aging out.
+                        touch_detection(last_detection_id)
 
-                    last_vehicle_box = vehicle_box
+                    if vehicle_box is not None:
+                        last_vehicle_box = vehicle_box
                     last_seen_at = now
 
                 time.sleep(WORKER_POLL_INTERVAL_SECONDS)
