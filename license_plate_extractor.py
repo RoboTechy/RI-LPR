@@ -115,6 +115,22 @@ def _get_char_detector(char_model_path):
         _char_detector = YOLO(char_model_path)
     return _char_detector
 
+
+# Generic (COCO-trained) detector used only to find "where's the vehicle"
+# - cached the same way as the other models below (was being reloaded
+# from disk on every single call before this fix, which dominated the
+# per-frame processing time badly enough to cause noticeable end-to-end
+# delay for a production worker polling every few seconds).
+_vehicle_detector = None
+
+
+def _get_vehicle_detector():
+    global _vehicle_detector
+    if _vehicle_detector is None:
+        _vehicle_detector = YOLO("yolo11n.pt")
+    return _vehicle_detector
+
+
 # COCO class ids this pipeline looks for as "the vehicle" in a photo.
 # car=2, truck=7, bus=5. Not motorcycle(3) - not needed for this project.
 # bus is included because the generic detector misclassifies some
@@ -140,12 +156,21 @@ def _get_general_plate_detector():
     return _general_plate_detector
 
 
+_plate_detectors = {}  # one cached YOLO instance per distinct plate_model_path seen
+
+
+def _get_plate_detector(plate_model_path):
+    if plate_model_path not in _plate_detectors:
+        _plate_detectors[plate_model_path] = YOLO(plate_model_path)
+    return _plate_detectors[plate_model_path]
+
+
 def _detect_plate_box(cropped_vehicle_image, plate_model_path):
     """Return the plate's (xmin, ymin, xmax, ymax) in cropped_vehicle_image, or None if not found."""
     if not Path(plate_model_path).exists():
         print(f"{plate_model_path} not found, falling back to {FALLBACK_PLATE_MODEL_PATH}")
         plate_model_path = FALLBACK_PLATE_MODEL_PATH
-    model = YOLO(plate_model_path)
+    model = _get_plate_detector(plate_model_path)
     results = model(cropped_vehicle_image)
     if len(results[0].boxes) > 0:
         return results[0].boxes[0].xyxy[0].cpu().numpy()
@@ -180,7 +205,7 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
     test does. Appended after vehicle_crop if both are requested.
     """
     # find the biggest car/truck in the image
-    yolo_model = YOLO("yolo11n.pt")
+    yolo_model = _get_vehicle_detector()
     car_results = yolo_model(image_name)
     car_boxes = filter_boxes_by_class(car_results[0].boxes, VEHICLE_CLASS_IDS)
 
