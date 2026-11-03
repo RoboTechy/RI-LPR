@@ -47,6 +47,12 @@ def active_plates(db: Session = Depends(get_db)):
         .order_by(models.DetectedPlate.detected_at.desc())
         .all()
     )
+    def parse_confidence(value):
+        try:
+            return float(value) if value is not None else None
+        except ValueError:
+            return None
+
     return [
         schemas.ActivePlateOut(
             id=row.id,
@@ -55,6 +61,7 @@ def active_plates(db: Session = Depends(get_db)):
             line_number=row.camera.line_number,
             line_name=row.camera.name,
             detected_at=row.detected_at.isoformat(),
+            confidence=parse_confidence(row.confidence),
         )
         for row in rows
         if (row.camera_id, row.plate_text) not in suppressed

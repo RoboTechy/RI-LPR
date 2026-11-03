@@ -10,6 +10,7 @@ class ActivePlateOut(BaseModel):
     line_number: int
     line_name: str
     detected_at: str  # ISO 8601
+    confidence: Optional[float] = None  # 0..1, the weakest single character's confidence
 
 
 class PermitLogIn(BaseModel):

@@ -161,6 +161,20 @@
     typeNextChar();
   }
 
+  // Below this, the OCR read gets flagged to the operator as "weak" so
+  // they know to double check it against the truck itself rather than
+  // trusting it blindly - confidence is the weakest single character's
+  // score (see backend), a reasonable stand-in for "how sure is the
+  // whole read".
+  const CONFIDENCE_GOOD_THRESHOLD = 0.75;
+
+  function confidenceLabel(confidence) {
+    if (confidence === null || confidence === undefined) return null;
+    return confidence >= CONFIDENCE_GOOD_THRESHOLD
+      ? { text: 'تشخیص خوب', cls: 'good' }
+      : { text: 'تشخیص ضعیف', cls: 'weak' };
+  }
+
   // Shows the live "detected plates" list under the vehicle field and
   // keeps it refreshed (every 4s) while it stays open, so a plate that
   // appears while the operator is looking shows up without them having
@@ -200,7 +214,19 @@
       plates.forEach((plate) => {
         const item = document.createElement('div');
         item.className = 'ri-lpr-overlay-item';
-        item.textContent = `${plate.short_format} — لاین ${plate.line_number}`;
+
+        const mainText = document.createElement('span');
+        mainText.textContent = `${plate.short_format} — لاین ${plate.line_number}`;
+        item.appendChild(mainText);
+
+        const label = confidenceLabel(plate.confidence);
+        if (label) {
+          const badge = document.createElement('span');
+          badge.className = `ri-lpr-overlay-confidence ri-lpr-overlay-confidence-${label.cls}`;
+          badge.textContent = label.text;
+          item.appendChild(badge);
+        }
+
         item.addEventListener('click', () => {
           stopRefresh();
           box.remove();

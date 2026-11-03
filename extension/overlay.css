@@ -26,10 +26,32 @@
   cursor: pointer;
   font-size: 14px;
   border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .ri-lpr-overlay-item:hover {
   background: #e8f0fe;
+}
+
+.ri-lpr-overlay-confidence {
+  font-size: 11px;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.ri-lpr-overlay-confidence-good {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.ri-lpr-overlay-confidence-weak {
+  background: #fef3c7;
+  color: #b45309;
 }
 
 .ri-lpr-overlay-empty {
