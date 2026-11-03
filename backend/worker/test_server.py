@@ -75,39 +75,55 @@ def test_camera(camera_id: int):
     if frame is None:
         return {"success": False, "error": "اتصال به دوربین برقرار نشد یا تصویری دریافت نشد"}
 
+    # Always show the live frame, even with no truck in it right now -
+    # only draw boxes on it when something was actually found. RGB to
+    # match what read_plate() draws its boxes' coordinates against
+    # (detect_and_crop_plate() works in RGB throughout).
+    annotated = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    ocr_success = False
+    ocr_text = None
+    ocr_reason = None
+    characters_detected = None
+
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp_path = tmp.name
         cv2.imwrite(tmp_path, frame)
         result = read_plate(tmp_path, char_model_path=CHAR_MODEL_PATH, plate_model_path=PLATE_MODEL_PATH)
+    except ValueError as exc:
+        # expected/common case: no truck (or no plate on it) in this
+        # particular frame - not a real error, just nothing to draw.
+        ocr_reason = str(exc)
+        result = None
     except Exception as exc:
-        return {
-            "success": True,
-            "error": None,
-            "ocr_success": False,
-            "ocr_text": None,
-            "ocr_reason": f"خطای پردازش تصویر: {exc}",
-            "characters_detected": None,
-            "image_path": None,
-        }
+        ocr_reason = f"خطای پردازش تصویر: {exc}"
+        result = None
     finally:
         if tmp_path:
             Path(tmp_path).unlink(missing_ok=True)
 
-    annotated = result["vehicle_crop"].copy()
-    if result.get("plate_box") is not None:
-        x1, y1, x2, y2 = (int(v) for v in result["plate_box"])
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 4)
+    if result is not None:
+        GREEN = (0, 255, 0)  # annotated is RGB, so this really is green
+        vx1, vy1, vx2, vy2 = (int(v) for v in result["vehicle_box"])
+        cv2.rectangle(annotated, (vx1, vy1), (vx2, vy2), GREEN, 3)
+        if result.get("plate_box") is not None:
+            px1, py1, px2, py2 = (int(v) for v in result["plate_box"])
+            cv2.rectangle(annotated, (px1, py1), (px2, py2), GREEN, 3)
+        ocr_success = result["success"]
+        ocr_text = result["plate_text"]
+        ocr_reason = result["reason"]
+        characters_detected = " ".join(c for c, _conf in result["characters"]) if result["characters"] else None
 
     image_path = save_image(annotated, "camera_tests")
 
     return {
         "success": True,
         "error": None,
-        "ocr_success": result["success"],
-        "ocr_text": result["plate_text"],
-        "ocr_reason": result["reason"],
-        "characters_detected": " ".join(c for c, _conf in result["characters"]) if result["characters"] else None,
+        "ocr_success": ocr_success,
+        "ocr_text": ocr_text,
+        "ocr_reason": ocr_reason,
+        "characters_detected": characters_detected,
         "image_path": image_path,
     }
