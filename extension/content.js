@@ -280,14 +280,21 @@
         const shortPlate = plate.short_format;
         typeIntoField(input, shortPlate, () => {
           waitForDropdownResult(config.vehicleDropdownId, (itemCount) => {
-            suppressOverlayOnFocus = false;
             if (itemCount === 0) {
+              suppressOverlayOnFocus = false;
               console.log('[RI-LPR] no matching vehicle for', shortPlate, '- opening the new-vehicle form');
               chrome.storage.local.set({ [STORAGE_KEY_PENDING_PLATE]: shortPlate }, () => {
                 clickNewButton(config.vehicleDropdownId);
               });
             } else {
               console.log(`[RI-LPR] ${itemCount} matching vehicle(s) found for`, shortPlate, '- pick one from Rahkaran\'s own list');
+              // Clicking the actual result row in Rahkaran's own dropdown
+              // can itself refocus this input (part of how Rahkaran sets
+              // the field once a row is picked) - if we re-enabled the
+              // overlay immediately, that refocus would pop it right back
+              // up over the selection the operator just made. Give them a
+              // few seconds to click a row before re-arming it.
+              setTimeout(() => { suppressOverlayOnFocus = false; }, 4000);
             }
           });
         });

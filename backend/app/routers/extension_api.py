@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
-from ..config import ACTIVE_PLATE_WINDOW_MINUTES
+from ..config import ACTIVE_PLATE_WINDOW_MINUTES, PLATE_SUPPRESS_AFTER_SAVE_MINUTES
 from ..database import get_db
 from ..security import check_extension_api_key
 
@@ -20,8 +20,24 @@ def active_plates(db: Session = Depends(get_db)):
     """Every not-yet-used plate detected in the last
     ACTIVE_PLATE_WINDOW_MINUTES, newest first - shown to every operator's
     extension regardless of which camera/line it came from (any operator
-    may handle any line's truck)."""
+    may handle any line's truck).
+
+    Also excludes any plate whose exact text was already used on a saved
+    permit (same camera) within the last PLATE_SUPPRESS_AFTER_SAVE_MINUTES
+    - without this, a truck still sitting at the same line keeps getting
+    freshly detected and reappears in the list right after being saved."""
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=ACTIVE_PLATE_WINDOW_MINUTES)
+    suppress_cutoff = datetime.now(timezone.utc) - timedelta(minutes=PLATE_SUPPRESS_AFTER_SAVE_MINUTES)
+
+    recently_consumed = (
+        db.query(models.DetectedPlate.camera_id, models.DetectedPlate.plate_text)
+        .filter(models.DetectedPlate.consumed.is_(True))
+        .filter(models.DetectedPlate.consumed_at >= suppress_cutoff)
+        .distinct()
+        .all()
+    )
+    suppressed = {(camera_id, plate_text) for camera_id, plate_text in recently_consumed}
+
     rows = (
         db.query(models.DetectedPlate)
         .join(models.Camera)
@@ -41,6 +57,7 @@ def active_plates(db: Session = Depends(get_db)):
             detected_at=row.detected_at.isoformat(),
         )
         for row in rows
+        if (row.camera_id, row.plate_text) not in suppressed
     ]
 
 
@@ -62,9 +79,26 @@ def create_permit_log(payload: schemas.PermitLogIn, request: Request, db: Sessio
 
     if payload.detected_plate_id is not None:
         detected = db.query(models.DetectedPlate).get(payload.detected_plate_id)
-        if detected is not None and not detected.consumed:
-            detected.consumed = True
-            detected.consumed_at = datetime.now(timezone.utc)
+        if detected is not None:
+            now = datetime.now(timezone.utc)
+            if not detected.consumed:
+                detected.consumed = True
+                detected.consumed_at = now
+
+            # Also consume any other not-yet-used detections of the exact
+            # same plate on the same camera (e.g. near-duplicate rows from
+            # the same truck read a few polls apart) - otherwise they'd
+            # still show up right after this one gets saved.
+            siblings = (
+                db.query(models.DetectedPlate)
+                .filter(models.DetectedPlate.camera_id == detected.camera_id)
+                .filter(models.DetectedPlate.plate_text == detected.plate_text)
+                .filter(models.DetectedPlate.consumed.is_(False))
+                .all()
+            )
+            for sibling in siblings:
+                sibling.consumed = True
+                sibling.consumed_at = now
 
     db.commit()
     db.refresh(log)

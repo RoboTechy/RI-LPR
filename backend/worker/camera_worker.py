@@ -75,7 +75,6 @@ def store_detection(camera_id, chars, plate_text, result):
 
 
 def camera_loop(camera_id: int):
-    last_plate_text = None
     last_plate_at = 0.0
 
     while True:
@@ -124,9 +123,16 @@ def camera_loop(camera_id: int):
                     chars = [c for c, _conf in result["characters"]]
                     plate_text = "".join(chars)
                     now = time.monotonic()
-                    if plate_text != last_plate_text or (now - last_plate_at) > WORKER_DEDUPE_COOLDOWN_SECONDS:
+                    # Cooldown is per-camera, not per-(camera, exact plate
+                    # text): a truck sitting still gets read on every poll,
+                    # and OCR noise can flip a single character between
+                    # reads (e.g. "12234" vs "12224") - comparing exact
+                    # text let each noisy read slip through as "a new
+                    # plate", logging several near-duplicate rows for one
+                    # truck. Suppressing on time alone, regardless of what
+                    # the text says, fixes that.
+                    if (now - last_plate_at) > WORKER_DEDUPE_COOLDOWN_SECONDS:
                         store_detection(camera_id, chars, plate_text, result)
-                        last_plate_text = plate_text
                         last_plate_at = now
 
                 time.sleep(WORKER_POLL_INTERVAL_SECONDS)

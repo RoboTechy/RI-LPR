@@ -25,6 +25,12 @@ DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "change-me-now
 # detection, unless an operator already used it on a saved permit.
 ACTIVE_PLATE_WINDOW_MINUTES = int(os.environ.get("ACTIVE_PLATE_WINDOW_MINUTES", "20"))
 
+# Once a plate has been used on a saved permit, don't show that same
+# plate text again (same camera) for this many minutes - a truck that's
+# still sitting at the same line being loaded/unloaded would otherwise
+# get re-detected and show back up in the list right after being saved.
+PLATE_SUPPRESS_AFTER_SAVE_MINUTES = int(os.environ.get("PLATE_SUPPRESS_AFTER_SAVE_MINUTES", "60"))
+
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", str(BASE_DIR / "media")))
 MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 (MEDIA_ROOT / "plates").mkdir(exist_ok=True)
