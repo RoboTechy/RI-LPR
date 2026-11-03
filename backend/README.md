@@ -45,6 +45,44 @@ docker compose up -d --build
   transporter, permit type, plant, loading point, vehicle) plus which
   detection it came from, if any.
 
+## Upgrading an already-running deployment past this commit
+
+A `plate_box` column was added to `detected_plates` (see "Exporting a
+fine-tuning dataset" below). `create_all()` only creates missing
+*tables*, not missing *columns* on a table that already exists - on a
+deployment that already has real data, run this once against the live
+database before (or right after) `docker compose up -d --build`:
+
+```bash
+docker compose exec db psql -U ri_lpr -d ri_lpr -c \
+  "ALTER TABLE detected_plates ADD COLUMN IF NOT EXISTS plate_box JSON;"
+```
+
+Detections logged before this runs simply have `plate_box = NULL` and
+are skipped by the export script - nothing else is affected.
+
+## Exporting a fine-tuning dataset
+
+For collecting training data while the system is new - deliberately
+**not** a docker-compose service (only needed for a few days, not an
+always-on thing): run it on demand inside the already-running `worker`
+container, which already has DB + media access:
+
+```bash
+docker compose exec worker python3 worker/export_training_dataset.py --min-confidence 0.75
+```
+
+Writes, per high-confidence detection, the vehicle image + a YOLO-format
+bounding box label for the plate + the cropped plate image + a
+`manifest.jsonl` with the full OCR text and metadata, into
+`media/training_export/` inside the container (i.e.
+`backend/media/training_export/` on the host, via the `media_data`
+volume). See the script's own docstring (`--help`) for all options,
+including `--only-consumed` (export only plates an operator actually
+picked and saved a permit against - stronger correctness signal than
+OCR confidence alone). Only covers detections logged after the
+`plate_box` column was added (see above) - older ones are skipped.
+
 ## Notes / known simplifications (MVP, built under time pressure)
 
 - No per-operator login for the extension - any operator may pick up

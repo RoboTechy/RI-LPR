@@ -92,6 +92,13 @@ class DetectedPlate(Base):
     plate_image_path = Column(String(255), nullable=True)
     vehicle_image_path = Column(String(255), nullable=True)
 
+    # (xmin, ymin, xmax, ymax) of the plate WITHIN vehicle_image_path -
+    # i.e. where to draw/crop it on that specific image file, for
+    # building fine-tuning datasets later (see
+    # worker/export_training_dataset.py). Null for detections logged
+    # before this field existed.
+    plate_box = Column(JSON, nullable=True)
+
     detected_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
 
     consumed = Column(Boolean, default=False, nullable=False)

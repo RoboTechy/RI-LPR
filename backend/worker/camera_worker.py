@@ -84,6 +84,15 @@ def store_detection(camera_id, chars, plate_text, result):
     confidences = [conf for _c, conf in result["characters"]]
     min_confidence = min(confidences) if confidences else None
 
+    # result's boxes are in the ORIGINAL frame's coordinates - translate
+    # the plate box into vehicle_image_path's own coordinate space (i.e.
+    # relative to vehicle_crop, since that's the file it's saved
+    # alongside) for later fine-tuning exports (see
+    # worker/export_training_dataset.py).
+    vx1, vy1, _vx2, _vy2 = result["vehicle_box"]
+    px1, py1, px2, py2 = result["plate_box"]
+    plate_box_local = [px1 - vx1, py1 - vy1, px2 - vx1, py2 - vy1]
+
     db = SessionLocal()
     try:
         detection = models.DetectedPlate(
@@ -94,6 +103,7 @@ def store_detection(camera_id, chars, plate_text, result):
             confidence=f"{min_confidence:.3f}" if min_confidence is not None else None,
             plate_image_path=plate_image_path,
             vehicle_image_path=vehicle_image_path,
+            plate_box=plate_box_local,
             detected_at=datetime.now(timezone.utc),
         )
         db.add(detection)
