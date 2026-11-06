@@ -26,8 +26,9 @@
 
     <div class="card" style="margin-top:16px;background:var(--surface-alt);box-shadow:none;">
       {% if result.ocr_success %}
-        <div class="hint">پلاک تشخیص داده‌شده</div>
-        <div style="font-size:24px;font-weight:800;margin-top:4px;">{{ result.ocr_text }}</div>
+        <div class="hint">پلاک تشخیص داده‌شده (همون فرمتی که تو راهکاران نشون داده می‌شه)</div>
+        <div style="font-size:24px;font-weight:800;margin-top:4px;">{{ result.short_format }}</div>
+        <div class="hint" style="margin-top:6px;">کاراکترهای کامل: {{ result.ocr_text }}</div>
       {% else %}
         <span class="pill danger">پلاک با اطمینان کافی تشخیص داده نشد</span>
         {% if result.ocr_reason %}<div class="hint" style="margin-top:8px;">دلیل: {{ result.ocr_reason }}</div>{% endif %}

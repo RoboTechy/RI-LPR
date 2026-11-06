@@ -19,7 +19,7 @@ import cv2
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 
-from pipeline_utils import CHAR_MODEL_PATH, PLATE_MODEL_PATH, save_image
+from pipeline_utils import CHAR_MODEL_PATH, PLATE_MODEL_PATH, format_plate_short, save_image
 
 from app import models  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
@@ -85,6 +85,7 @@ def test_camera(camera_id: int):
 
     ocr_success = False
     ocr_text = None
+    short_format = None
     ocr_reason = None
     characters_detected = None
 
@@ -117,6 +118,12 @@ def test_camera(camera_id: int):
         ocr_text = result["plate_text"]
         ocr_reason = result["reason"]
         characters_detected = " ".join(c for c, _conf in result["characters"]) if result["characters"] else None
+        if ocr_success:
+            # The same short, letter-stripped "XXXXX/XX" format the
+            # operator actually sees in Rahkaran (extension overlay) -
+            # show that here too instead of the raw 8-character OCR
+            # dump, so what's shown on this test page matches reality.
+            short_format = format_plate_short([c for c, _conf in result["characters"]])
 
     image_path = save_image(annotated, "camera_tests")
 
@@ -125,6 +132,7 @@ def test_camera(camera_id: int):
         "error": None,
         "ocr_success": ocr_success,
         "ocr_text": ocr_text,
+        "short_format": short_format,
         "ocr_reason": ocr_reason,
         "characters_detected": characters_detected,
         "image_path": image_path,
