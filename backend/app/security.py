@@ -56,3 +56,24 @@ def get_current_admin(request: Request, db: Session = Depends(get_db)) -> models
     if not user:
         raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/admin/login"})
     return user
+
+
+def require_superuser(admin: models.AdminUser = Depends(get_current_admin)) -> models.AdminUser:
+    """Gate for routes only "مدیر" (is_superuser) accounts may use -
+    managing cameras and other admin accounts. An "اوپراتور" account
+    (is_superuser=False, restricted to its assigned cameras via the
+    user_camera_access table) may log in and view/test/control the
+    traffic light on cameras it's been granted, but never this."""
+    if not admin.is_superuser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="فقط مدیر کل به این بخش دسترسی دارد")
+    return admin
+
+
+def ensure_camera_access(camera: models.Camera, admin: models.AdminUser) -> None:
+    """Raises 404 (not 403 - don't confirm the camera even exists to an
+    operator who isn't allowed to see it) if a non-superuser admin was
+    not explicitly granted this camera."""
+    if admin.is_superuser:
+        return
+    if camera is None or camera not in admin.cameras:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="دوربین پیدا نشد")

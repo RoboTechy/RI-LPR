@@ -21,8 +21,8 @@
       <tr>
         <td><strong>{{ u.username }}</strong></td>
         <td>
-          {% if u.is_superuser %}<span class="pill success">مدیر کل</span>
-          {% else %}<span class="pill neutral">محدود</span>{% endif %}
+          {% if u.is_superuser %}<span class="pill success">مدیر</span>
+          {% else %}<span class="pill neutral">اوپراتور</span>{% endif %}
         </td>
         <td>
           {% if u.is_superuser %}<span class="hint">دسترسی به همه دوربین‌ها</span>

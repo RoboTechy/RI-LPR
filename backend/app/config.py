@@ -56,3 +56,10 @@ WORKER_PRESENCE_GAP_SECONDS = float(os.environ.get("WORKER_PRESENCE_GAP_SECONDS"
 # reachable from the api container, over the Compose network - backs
 # the admin panel's per-camera "تست ارتباط" button.
 WORKER_INTERNAL_URL = os.environ.get("WORKER_INTERNAL_URL", "http://worker:9000")
+
+# The Raspberry Pi relay-control service (../pi-relay-service/) - a
+# separate physical device on the plant network, not a container in
+# this compose file. Controls each line's traffic light (red/green)
+# via a relay board. Set the real IP once it's deployed.
+PI_RELAY_SERVICE_URL = os.environ.get("PI_RELAY_SERVICE_URL", "http://192.168.201.50:8080")
+PI_RELAY_API_KEY = os.environ.get("PI_RELAY_API_KEY", "change-me-relay-key")

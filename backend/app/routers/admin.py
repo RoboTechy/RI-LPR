@@ -1,16 +1,22 @@
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from .. import models
+from .. import models, relay_client
 from ..config import DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME, WORKER_INTERNAL_URL
 from ..database import get_db
 from ..jalali import to_jalali_str
-from ..security import get_current_admin, hash_password, verify_password
+from ..security import (
+    ensure_camera_access,
+    get_current_admin,
+    hash_password,
+    require_superuser,
+    verify_password,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -85,11 +91,14 @@ def visible_cameras(db: Session, admin: models.AdminUser):
 @router.get("/cameras")
 def cameras_list(request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)):
     cameras = visible_cameras(db, admin)
-    return templates.TemplateResponse(request, "cameras.html", {"admin": admin, "cameras": cameras})
+    lights = relay_client.get_all_lights()
+    return templates.TemplateResponse(
+        request, "cameras.html", {"admin": admin, "cameras": cameras, "lights": lights}
+    )
 
 
 @router.get("/cameras/new")
-def camera_new_form(request: Request, admin: models.AdminUser = Depends(get_current_admin)):
+def camera_new_form(request: Request, admin: models.AdminUser = Depends(require_superuser)):
     return templates.TemplateResponse(
         request, "camera_form.html", {"admin": admin, "camera": None, "error": None}
     )
@@ -108,7 +117,7 @@ def camera_new_submit(
     rtsp_url_override: str = Form(""),
     is_active: str = Form(None),
     db: Session = Depends(get_db),
-    admin: models.AdminUser = Depends(get_current_admin),
+    admin: models.AdminUser = Depends(require_superuser),
 ):
     camera = models.Camera(
         name=name,
@@ -128,7 +137,7 @@ def camera_new_submit(
 
 @router.get("/cameras/{camera_id}/edit")
 def camera_edit_form(
-    camera_id: int, request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)
+    camera_id: int, request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(require_superuser)
 ):
     camera = db.query(models.Camera).get(camera_id)
     return templates.TemplateResponse(
@@ -149,7 +158,7 @@ def camera_edit_submit(
     rtsp_url_override: str = Form(""),
     is_active: str = Form(None),
     db: Session = Depends(get_db),
-    admin: models.AdminUser = Depends(get_current_admin),
+    admin: models.AdminUser = Depends(require_superuser),
 ):
     camera = db.query(models.Camera).get(camera_id)
     camera.name = name
@@ -167,7 +176,7 @@ def camera_edit_submit(
 
 @router.post("/cameras/{camera_id}/delete")
 def camera_delete(
-    camera_id: int, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)
+    camera_id: int, db: Session = Depends(get_db), admin: models.AdminUser = Depends(require_superuser)
 ):
     camera = db.query(models.Camera).get(camera_id)
     if camera:
@@ -185,6 +194,7 @@ def camera_test_view(
     page's own button). Lets "پخش زنده" link straight here without
     forcing a detection run first."""
     camera = db.query(models.Camera).get(camera_id)
+    ensure_camera_access(camera, admin)
     return templates.TemplateResponse(
         request, "camera_test.html", {"admin": admin, "camera": camera, "result": None}
     )
@@ -195,6 +205,7 @@ def camera_test(
     camera_id: int, request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)
 ):
     camera = db.query(models.Camera).get(camera_id)
+    ensure_camera_access(camera, admin)
     result = {"success": False, "error": "دوربین پیدا نشد"}
     if camera is not None:
         try:
@@ -214,11 +225,13 @@ def camera_test(
 
 
 @router.get("/cameras/{camera_id}/stream")
-def camera_stream(camera_id: int, admin: models.AdminUser = Depends(get_current_admin)):
+def camera_stream(camera_id: int, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)):
     """Proxies the worker's raw MJPEG feed (see worker/test_server.py's
     stream_camera()) so the browser - which can't reach the worker
     container directly, only the Compose network can - gets a live
     <img> preview instead of the one-snapshot-per-click test result."""
+    camera = db.query(models.Camera).get(camera_id)
+    ensure_camera_access(camera, admin)
 
     def proxy():
         with httpx.stream("GET", f"{WORKER_INTERNAL_URL}/stream-camera/{camera_id}", timeout=None) as resp:
@@ -228,16 +241,39 @@ def camera_stream(camera_id: int, admin: models.AdminUser = Depends(get_current_
     return StreamingResponse(proxy(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
+@router.post("/cameras/{camera_id}/light/{color}")
+def camera_light_set(
+    camera_id: int,
+    color: str,
+    db: Session = Depends(get_db),
+    admin: models.AdminUser = Depends(get_current_admin),
+):
+    """Manual override for a line's traffic light - available to any
+    logged-in account (admin or اوپراتور) that has access to this
+    camera, not just مدیر; this is routine operational use, not service
+    configuration. The same relay also gets triggered automatically on
+    a saved permit (see extension_api.py) and auto-reverts to red on
+    its own after a timeout - this is just a manual way to do the same
+    thing early, or force it back red."""
+    camera = db.query(models.Camera).get(camera_id)
+    ensure_camera_access(camera, admin)
+    if color not in ("green", "red"):
+        raise HTTPException(status_code=400, detail="رنگ نامعتبر است")
+    if camera is not None:
+        relay_client.set_light(camera.line_number, color)
+    return RedirectResponse("/admin/cameras", status_code=303)
+
+
 # ----------------------------------------------------------------- users ---
 
 @router.get("/users")
-def users_list(request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)):
+def users_list(request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(require_superuser)):
     users = db.query(models.AdminUser).order_by(models.AdminUser.username).all()
     return templates.TemplateResponse(request, "users.html", {"admin": admin, "users": users})
 
 
 @router.get("/users/new")
-def user_new_form(request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)):
+def user_new_form(request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(require_superuser)):
     cameras = db.query(models.Camera).order_by(models.Camera.line_number).all()
     return templates.TemplateResponse(
         request, "user_form.html", {"admin": admin, "user": None, "cameras": cameras, "error": None}
@@ -252,7 +288,7 @@ def user_new_submit(
     is_superuser: str = Form(None),
     camera_ids: list[int] = Form([]),
     db: Session = Depends(get_db),
-    admin: models.AdminUser = Depends(get_current_admin),
+    admin: models.AdminUser = Depends(require_superuser),
 ):
     user = models.AdminUser(username=username, password_hash=hash_password(password), is_superuser=bool(is_superuser))
     if camera_ids:
@@ -264,7 +300,7 @@ def user_new_submit(
 
 @router.get("/users/{user_id}/edit")
 def user_edit_form(
-    user_id: int, request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)
+    user_id: int, request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(require_superuser)
 ):
     user = db.query(models.AdminUser).get(user_id)
     cameras = db.query(models.Camera).order_by(models.Camera.line_number).all()
@@ -281,7 +317,7 @@ def user_edit_submit(
     is_superuser: str = Form(None),
     camera_ids: list[int] = Form([]),
     db: Session = Depends(get_db),
-    admin: models.AdminUser = Depends(get_current_admin),
+    admin: models.AdminUser = Depends(require_superuser),
 ):
     user = db.query(models.AdminUser).get(user_id)
     user.username = username
@@ -294,7 +330,7 @@ def user_edit_submit(
 
 
 @router.post("/users/{user_id}/delete")
-def user_delete(user_id: int, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)):
+def user_delete(user_id: int, db: Session = Depends(get_db), admin: models.AdminUser = Depends(require_superuser)):
     user = db.query(models.AdminUser).get(user_id)
     if user and user.id != admin.id:
         db.delete(user)

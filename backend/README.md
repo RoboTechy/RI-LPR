@@ -29,6 +29,11 @@ docker compose up -d --build
   worker only picks up cameras marked "فعال" (active) - restart the
   `worker` container after adding/changing cameras:
   `docker compose restart worker`.
+- Two account levels (**Users**, مدیر-only): **مدیر** (`is_superuser`)
+  manages cameras and other accounts; **اوپراتور** can only view/test/
+  stream the cameras it's explicitly granted and use their traffic-light
+  buttons (see below) - it cannot add, edit or delete a camera or
+  another account, even its own granted ones.
 
 ## What the extension needs from here
 
@@ -82,6 +87,19 @@ including `--only-consumed` (export only plates an operator actually
 picked and saved a permit against - stronger correctness signal than
 OCR confidence alone). Only covers detections logged after the
 `plate_box` column was added (see above) - older ones are skipped.
+
+## Traffic light (Raspberry Pi relay)
+
+Saving a permit (linked to a detection) turns that line's physical
+traffic light green for a while, then it reverts to red on its own -
+see `../pi-relay-service/README.md` for the Pi-side setup (wiring,
+GPIO pin mapping, systemd service) and `PI_RELAY_SERVICE_URL`/
+`PI_RELAY_API_KEY` above for pointing this backend at it. The
+دوربین‌ها page also shows each line's current light color with manual
+"سبز کردن"/"قرمز کردن" buttons - available to اوپراتور accounts too.
+If the Pi is unreachable, this never blocks saving a permit or breaks
+the admin panel (see `app/relay_client.py`) - the light just shows as
+"نامشخص".
 
 ## Notes / known simplifications (MVP, built under time pressure)
 

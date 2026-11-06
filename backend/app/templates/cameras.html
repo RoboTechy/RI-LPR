@@ -4,7 +4,7 @@
 <div class="card">
   <div class="card-header">
     <h3>دوربین‌ها / لاین‌ها</h3>
-    <a class="btn" href="/admin/cameras/new">+ افزودن دوربین</a>
+    {% if admin.is_superuser %}<a class="btn" href="/admin/cameras/new">+ افزودن دوربین</a>{% endif %}
   </div>
   {% if cameras %}
   <table>
@@ -13,7 +13,8 @@
         <th>لاین</th>
         <th>نام</th>
         <th>آدرس RTSP</th>
-        <th>وضعیت</th>
+        <th>وضعیت دوربین</th>
+        <th>چراغ راهنمایی</th>
         <th></th>
       </tr>
     </thead>
@@ -28,12 +29,28 @@
           {% else %}<span class="pill danger">غیرفعال</span>{% endif %}
         </td>
         <td>
+          {% set light = lights.get(cam.line_number) %}
+          {% if light == "green" %}<span class="pill success">سبز</span>
+          {% elif light == "red" %}<span class="pill danger">قرمز</span>
+          {% else %}<span class="pill neutral">نامشخص</span>{% endif %}
+          <div class="actions" style="margin-top:6px;">
+            <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/light/green">
+              <button class="btn sm" type="submit" style="background:#16a34a;">سبز کردن</button>
+            </form>
+            <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/light/red">
+              <button class="btn sm" type="submit" style="background:#dc2626;">قرمز کردن</button>
+            </form>
+          </div>
+        </td>
+        <td>
           <div class="actions">
             <a class="btn sm" href="/admin/cameras/{{ cam.id }}/test">پخش زنده / تست</a>
+            {% if admin.is_superuser %}
             <a class="btn secondary sm" href="/admin/cameras/{{ cam.id }}/edit">ویرایش</a>
             <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/delete" onsubmit="return confirm('حذف شود؟');">
               <button class="btn danger sm" type="submit">حذف</button>
             </form>
+            {% endif %}
           </div>
         </td>
       </tr>

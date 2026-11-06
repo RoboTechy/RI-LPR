@@ -1,0 +1,9 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+gpiozero==2.0.1
+# gpiozero's GPIO backend on current Raspberry Pi OS (Bookworm+). If
+# you're on an older Raspberry Pi OS (Bullseye or earlier), use
+# RPi.GPIO instead - comment the line below out and uncomment the one
+# under it.
+lgpio==0.2.2.0
+# RPi.GPIO==0.7.1

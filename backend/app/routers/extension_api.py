@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from .. import models, schemas
+from .. import models, relay_client, schemas
 from ..config import ACTIVE_PLATE_WINDOW_MINUTES, PLATE_SUPPRESS_AFTER_SAVE_MINUTES
 from ..database import get_db
 from ..security import check_extension_api_key
@@ -84,6 +84,8 @@ def create_permit_log(payload: schemas.PermitLogIn, request: Request, db: Sessio
     )
     db.add(log)
 
+    line_number_to_light = None
+
     if payload.detected_plate_id is not None:
         detected = db.query(models.DetectedPlate).get(payload.detected_plate_id)
         if detected is not None:
@@ -107,6 +109,14 @@ def create_permit_log(payload: schemas.PermitLogIn, request: Request, db: Sessio
                 sibling.consumed = True
                 sibling.consumed_at = now
 
+            line_number_to_light = detected.camera.line_number
+
     db.commit()
     db.refresh(log)
+
+    if line_number_to_light is not None:
+        # Best-effort (see relay_client.py) - a relay/network hiccup must
+        # never fail saving the permit, which already succeeded above.
+        relay_client.set_light(line_number_to_light, "green")
+
     return schemas.PermitLogOut(id=log.id)
