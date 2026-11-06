@@ -1,13 +1,17 @@
 {
   "manifest_version": 3,
   "name": "RI-LPR Rahkaran Plate Assistant",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Fills camera-detected truck plates into Rahkaran's loading/unloading permit forms instead of the operator typing them.",
   "permissions": ["storage"],
-  "host_permissions": ["http://172.16.120.15/*", "http://192.168.201.4:8000/*"],
+  "host_permissions": [
+    "http://172.16.120.15/*",
+    "http://erp.igisco.ocmc/*",
+    "http://192.168.201.4:8000/*"
+  ],
   "content_scripts": [
     {
-      "matches": ["http://172.16.120.15/*"],
+      "matches": ["http://172.16.120.15/*", "http://erp.igisco.ocmc/*"],
       "all_frames": true,
       "css": ["overlay.css"],
       "js": ["content.js"],
