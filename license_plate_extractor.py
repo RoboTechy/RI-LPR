@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 import cv2
@@ -5,6 +6,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 from ultralytics import YOLO
+
+# Every active camera's polling thread (camera_worker.py's camera_loop(),
+# one per line) AND the admin panel's on-demand "تست تشخیص پلاک" button
+# (test_server.py) run in the SAME worker process and call into these
+# same cached model objects (see _get_vehicle_detector() etc. below) -
+# with no synchronization, that's concurrent calls into the same YOLO
+# model instance from multiple threads, which ultralytics doesn't
+# guarantee is safe, and which also means an on-demand test has to fight
+# every live camera's thread for CPU time, with no bound on how long
+# that takes. Serializing every model call through this one lock fixes
+# both: correctness (no two threads ever run inference on the same model
+# at once) and makes the worst case for a manual test bounded (it waits
+# for at most one in-flight inference call per model, not an unbounded race).
+_inference_lock = threading.Lock()
 
 def filter_boxes_by_class(boxes, cls_ids):
     """
@@ -171,13 +186,15 @@ def _detect_plate_box(cropped_vehicle_image, plate_model_path):
         print(f"{plate_model_path} not found, falling back to {FALLBACK_PLATE_MODEL_PATH}")
         plate_model_path = FALLBACK_PLATE_MODEL_PATH
     model = _get_plate_detector(plate_model_path)
-    results = model(cropped_vehicle_image)
+    with _inference_lock:
+        results = model(cropped_vehicle_image)
     if len(results[0].boxes) > 0:
         return results[0].boxes[0].xyxy[0].cpu().numpy()
 
     print(f"{plate_model_path} found no plate, trying general-purpose fallback detector "
           f"(handles vehicle types it wasn't trained on, e.g. trucks)")
-    detections = _get_general_plate_detector().predict(cropped_vehicle_image)
+    with _inference_lock:
+        detections = _get_general_plate_detector().predict(cropped_vehicle_image)
     if not detections:
         return None
     best = max(detections, key=lambda d: d.confidence)
@@ -206,7 +223,8 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
     """
     # find the biggest car/truck in the image
     yolo_model = _get_vehicle_detector()
-    car_results = yolo_model(image_name)
+    with _inference_lock:
+        car_results = yolo_model(image_name)
     car_boxes = filter_boxes_by_class(car_results[0].boxes, VEHICLE_CLASS_IDS)
 
     if len(car_boxes) == 0:
@@ -424,7 +442,8 @@ def read_plate(image_name, char_model_path=DEFAULT_CHAR_MODEL_PATH,
         return_vehicle_crop=True, return_boxes=True)
 
     char_model = _get_char_detector(char_model_path)
-    results = char_model(plate_crop, verbose=False)[0]
+    with _inference_lock:
+        results = char_model(plate_crop, verbose=False)[0]
 
     detections = []
     for box in results.boxes:
