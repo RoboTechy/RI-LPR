@@ -1,9 +1,19 @@
 FROM python:3.11-slim
 
-# libgl1/libglib2.0-0 - required by opencv-python-headless/ultralytics at import time.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+# libgl1/libglib2.0-0 - required by opencv-python-headless/ultralytics at
+# import time. Retried + given more time: this network has repeatedly
+# proven flaky enough that even apt can time out, not just pip.
+RUN set -e; \
+    for i in 1 2 3 4 5; do \
+      apt-get update \
+        -o Acquire::Retries=5 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 \
+      && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+      && rm -rf /var/lib/apt/lists/* \
+      && exit 0; \
+      echo "apt-get attempt $i failed, retrying in 15s..."; \
+      sleep 15; \
+    done; \
+    echo "apt-get failed after 5 attempts"; exit 1
 
 # pip's default per-chunk read timeout (15s) is too short for some of
 # these wheels (opencv, onnxruntime, torch) on a slower connection - hit
@@ -23,10 +33,30 @@ WORKDIR /app
 # build here first means it's already satisfied by the time pip resolves
 # requirements-worker.txt's "torch>=1.8.0", so that huge resolution never
 # gets pulled at all.
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#
+# Both this and the requirements-worker.txt install below are wrapped in
+# a retry loop: PIP_DEFAULT_TIMEOUT/PIP_RETRIES alone weren't enough on
+# this connection - pip can fail to even fetch a package's version list
+# within 180s and give up outright ("from versions: none") rather than
+# retrying a fresh attempt. Earlier successful steps on this same
+# network suggest the link drops in and out rather than being dead, so
+# retrying the whole command is worth it.
+RUN set -e; \
+    for i in 1 2 3 4 5; do \
+      pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && exit 0; \
+      echo "pip install (torch) attempt $i failed, retrying in 15s..."; \
+      sleep 15; \
+    done; \
+    echo "pip install (torch) failed after 5 attempts"; exit 1
 
 COPY backend/requirements-worker.txt /app/backend/requirements-worker.txt
-RUN pip install --no-cache-dir -r /app/backend/requirements-worker.txt
+RUN set -e; \
+    for i in 1 2 3 4 5; do \
+      pip install --no-cache-dir -r /app/backend/requirements-worker.txt && exit 0; \
+      echo "pip install attempt $i failed, retrying in 15s..."; \
+      sleep 15; \
+    done; \
+    echo "pip install failed after 5 attempts"; exit 1
 
 COPY backend /app/backend
 COPY license_plate_extractor.py /app/license_plate_extractor.py

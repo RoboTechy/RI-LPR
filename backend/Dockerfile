@@ -8,7 +8,19 @@ ENV PIP_RETRIES=10
 WORKDIR /app
 
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+# The PIP_DEFAULT_TIMEOUT/PIP_RETRIES above weren't enough on their own -
+# on a flaky connection, pip can fail to even fetch a package's version
+# list within 180s and give up outright ("from versions: none") rather
+# than retrying a fresh attempt. Retrying the whole command a few times
+# (successful earlier steps elsewhere in this project suggest the link
+# drops in and out rather than being dead) works around that.
+RUN set -e; \
+    for i in 1 2 3 4 5; do \
+      pip install --no-cache-dir -r /app/backend/requirements.txt && exit 0; \
+      echo "pip install attempt $i failed, retrying in 15s..."; \
+      sleep 15; \
+    done; \
+    echo "pip install failed after 5 attempts"; exit 1
 
 COPY backend /app/backend
 
