@@ -128,3 +128,14 @@ class PermitLog(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
 
     detected_plate = relationship("DetectedPlate", back_populates="permit_logs")
+
+
+class AppSetting(Base):
+    """Small generic key/value store for admin-editable settings that
+    don't warrant their own dedicated table/column - currently just
+    manual_green_seconds (see cameras.html / admin.py)."""
+
+    __tablename__ = "app_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(String(255), nullable=False)

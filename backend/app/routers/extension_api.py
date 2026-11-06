@@ -117,6 +117,9 @@ def create_permit_log(payload: schemas.PermitLogIn, request: Request, db: Sessio
     if line_number_to_light is not None:
         # Best-effort (see relay_client.py) - a relay/network hiccup must
         # never fail saving the permit, which already succeeded above.
-        relay_client.set_light(line_number_to_light, "green")
+        # mode="auto": stays green until the worker's own camera loop
+        # decides the truck has left (see camera_worker.py), not a fixed
+        # timer - that's only for the admin panel's manual button.
+        relay_client.set_light(line_number_to_light, "green", mode="auto")
 
     return schemas.PermitLogOut(id=log.id)

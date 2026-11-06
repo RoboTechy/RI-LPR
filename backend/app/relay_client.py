@@ -25,11 +25,25 @@ log = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 2
 
 
-def set_light(line_number: int, color: str) -> bool:
-    """color: "green" or "red". Returns True if the Pi acknowledged it."""
+def set_light(line_number: int, color: str, mode: str = "manual", seconds: float | None = None) -> bool:
+    """color: "green" or "red".
+
+    mode only matters for color="green" - "auto" (saving a permit)
+    stays green with no timer until something explicitly turns it red
+    again (see set_light_red_if_auto() below); "manual" (the admin
+    panel's own button) auto-reverts to red after `seconds` (falls back
+    to the Pi's own default if omitted - see pi-relay-service/config.py).
+
+    Returns True if the Pi acknowledged it."""
     try:
+        params = {}
+        if color == "green":
+            params["mode"] = mode
+            if seconds is not None:
+                params["seconds"] = seconds
         resp = httpx.post(
             f"{PI_RELAY_SERVICE_URL}/light/{line_number}/{color}",
+            params=params,
             headers={"X-API-Key": PI_RELAY_API_KEY},
             timeout=TIMEOUT_SECONDS,
         )
@@ -37,6 +51,24 @@ def set_light(line_number: int, color: str) -> bool:
         return True
     except httpx.HTTPError:
         log.warning("could not set line %s's light to %s (relay service unreachable)", line_number, color)
+        return False
+
+
+def set_light_red_if_auto(line_number: int) -> bool:
+    """Called by the worker the moment it decides a truck has left a
+    line - only actually reverts the light if it's currently green
+    because of an automatic (Save-triggered) trigger, never a manual
+    one someone's deliberately testing."""
+    try:
+        resp = httpx.post(
+            f"{PI_RELAY_SERVICE_URL}/light/{line_number}/red-if-auto",
+            headers={"X-API-Key": PI_RELAY_API_KEY},
+            timeout=TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        return True
+    except httpx.HTTPError:
+        log.warning("could not clear line %s's auto-green light (relay service unreachable)", line_number)
         return False
 
 

@@ -25,6 +25,23 @@ board, per your own setup. `config.py`'s `RELAY_ACTIVE_LOW = True`
 matches this; if a given channel ends up inverted in practice, flip it
 to `False` and re-test that one line before trusting the rest.
 
+## Two ways a light turns green - and two different ways it turns red
+
+- **"auto"** - the backend sent this when an operator saved a permit
+  for a truck on that line. No timer at all here - stays green until
+  the backend's worker explicitly decides the truck has left (it
+  watches the camera; see `backend/worker/camera_worker.py`) and calls
+  `POST /light/{line}/red-if-auto`.
+- **"manual"** - someone clicked "سبز کردن" in the admin panel.
+  Auto-reverts to red after a fixed number of seconds the backend sends
+  along (admin-editable from the cameras page) - regardless of what any
+  camera sees.
+
+`POST /light/{line}/red` is an unconditional manual override (the
+admin panel's "قرمز کردن" button); `red-if-auto` is a no-op unless the
+light is currently green for the "auto" reason, so the worker's own
+departure detection can never cut a manual test short.
+
 **Before wiring all 6 lines**: wire just line 1, run through the smoke
 test below, and confirm red is really the idle state and green is
 really what you get from `POST /light/1/green` - cheaper to catch a
@@ -70,9 +87,15 @@ From another machine on the same network:
 
 ```bash
 curl http://<pi-ip>:8080/health                                       # no auth needed
-curl -X POST -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/light/1/green
+curl -X POST -H "X-API-Key: <RELAY_API_KEY>" "http://<pi-ip>:8080/light/1/green?mode=manual&seconds=5"
 curl -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/lights        # {"1": "green", "2": "red", ...}
-# wait AUTO_REVERT_SECONDS, then /lights should show line 1 back to "red" on its own
+# wait 5s, then /lights should show line 1 back to "red" on its own
+
+# "auto" mode (what a saved permit actually triggers) has NO timer -
+# confirm it stays green until you explicitly clear it:
+curl -X POST -H "X-API-Key: <RELAY_API_KEY>" "http://<pi-ip>:8080/light/1/green?mode=auto"
+sleep 10 && curl -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/lights   # line 1 should still be green
+curl -X POST -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/light/1/red-if-auto
 ```
 
 Once that's confirmed, install it as a systemd service so it survives
@@ -102,11 +125,14 @@ Then `docker compose restart api` (no rebuild needed - these are just
 environment variables). After that:
 
 - Saving a permit in the extension automatically turns that line's
-  light green (reverting to red on its own after `AUTO_REVERT_SECONDS`).
+  light green and keeps it green for exactly as long as the worker's
+  camera still sees that truck - no fixed timer for this path.
 - The admin panel's دوربین‌ها page shows each line's current light
   color and has manual "سبز کردن"/"قرمز کردن" buttons - available to
   اوپراتور accounts too, not just مدیر, since this is routine
-  day-to-day use, not service configuration.
+  day-to-day use, not service configuration. A manual green always
+  reverts after a fixed, مدیر-editable duration from that same page,
+  regardless of what any camera sees.
 
 If the Pi is unreachable, nothing else breaks - saving a permit and the
 admin panel both treat the relay service as best-effort (see

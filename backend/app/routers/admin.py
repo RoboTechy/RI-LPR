@@ -17,6 +17,7 @@ from ..security import (
     require_superuser,
     verify_password,
 )
+from ..settings import get_manual_green_seconds, set_manual_green_seconds
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -97,7 +98,12 @@ def cameras_list(request: Request, db: Session = Depends(get_db), admin: models.
     # page load on it was exactly the few-seconds-every-time slowness
     # reported when the Pi wasn't set up.
     cameras = visible_cameras(db, admin)
-    return templates.TemplateResponse(request, "cameras.html", {"admin": admin, "cameras": cameras})
+    manual_green_seconds = get_manual_green_seconds(db)
+    return templates.TemplateResponse(
+        request,
+        "cameras.html",
+        {"admin": admin, "cameras": cameras, "manual_green_seconds": manual_green_seconds},
+    )
 
 
 @router.get("/cameras/lights-status")
@@ -105,6 +111,23 @@ def cameras_lights_status(admin: models.AdminUser = Depends(get_current_admin)):
     """Fetched asynchronously by cameras.html after the page has already
     rendered - see cameras_list() above for why this is separate."""
     return relay_client.get_all_lights()
+
+
+@router.post("/settings/manual-green-seconds")
+def update_manual_green_seconds(
+    seconds: float = Form(...),
+    db: Session = Depends(get_db),
+    admin: models.AdminUser = Depends(require_superuser),
+):
+    """How long (seconds) a line's light stays green when turned on
+    manually from this page's own سبز کردن button - NOT when triggered
+    automatically by a saved permit, which instead stays green exactly
+    as long as the worker's camera still sees that truck (see
+    camera_worker.py / relay_client.set_light_red_if_auto)."""
+    if seconds <= 0:
+        raise HTTPException(status_code=400, detail="مدت زمان باید مثبت باشد")
+    set_manual_green_seconds(db, seconds)
+    return RedirectResponse("/admin/cameras", status_code=303)
 
 
 @router.get("/cameras/new")
@@ -261,16 +284,20 @@ def camera_light_set(
     """Manual override for a line's traffic light - available to any
     logged-in account (admin or اوپراتور) that has access to this
     camera, not just مدیر; this is routine operational use, not service
-    configuration. The same relay also gets triggered automatically on
-    a saved permit (see extension_api.py) and auto-reverts to red on
-    its own after a timeout - this is just a manual way to do the same
-    thing early, or force it back red."""
+    configuration. Turning it green here always reverts to red after
+    `manual_green_seconds` (مدیر-editable, see update_manual_green_seconds())
+    regardless of what any camera sees - unlike the automatic trigger on
+    a saved permit, which stays green exactly as long as the worker's
+    camera still sees that truck."""
     camera = db.query(models.Camera).get(camera_id)
     ensure_camera_access(camera, admin)
     if color not in ("green", "red"):
         raise HTTPException(status_code=400, detail="رنگ نامعتبر است")
     if camera is not None:
-        relay_client.set_light(camera.line_number, color)
+        if color == "green":
+            relay_client.set_light(camera.line_number, "green", mode="manual", seconds=get_manual_green_seconds(db))
+        else:
+            relay_client.set_light(camera.line_number, "red")
     return RedirectResponse("/admin/cameras", status_code=303)
 
 

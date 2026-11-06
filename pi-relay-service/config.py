@@ -13,9 +13,12 @@ HOST = os.environ.get("RELAY_HOST", "0.0.0.0")
 # around (test with one line before wiring the rest).
 RELAY_ACTIVE_LOW = True
 
-# How long (seconds) a line stays green before automatically reverting
-# to red on its own - independent of the backend, so it still reverts
-# even if the network or the backend container is down.
+# Fallback duration (seconds) for a "manual" green trigger that didn't
+# specify its own ?seconds= - normally the backend always sends one
+# (admin-editable from the cameras page), so this mostly only matters
+# for a manual curl/test call. Has no effect on an "auto" trigger (a
+# saved permit) - that one has no timer at all, see relay_service.py's
+# module docstring.
 AUTO_REVERT_SECONDS = float(os.environ.get("RELAY_AUTO_REVERT_SECONDS", "20"))
 
 # Which BCM GPIO pin drives which line's relay - EDIT THIS to match your

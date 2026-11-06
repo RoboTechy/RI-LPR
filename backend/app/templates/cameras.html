@@ -1,6 +1,19 @@
 {% extends "base.html" %}
 {% block title %}دوربین‌ها - RI-LPR{% endblock %}
 {% block content %}
+{% if admin.is_superuser %}
+<div class="card">
+  <div class="card-header"><h3>تنظیمات چراغ راهنمایی</h3></div>
+  <form method="post" action="/admin/settings/manual-green-seconds" style="display:flex;align-items:flex-end;gap:10px;">
+    <div>
+      <label style="margin-top:0;">مدت سبز ماندن دستی (ثانیه)</label>
+      <input type="number" name="seconds" min="1" step="1" value="{{ manual_green_seconds|int }}" style="width:140px;">
+      <div class="hint">فقط برای دکمه «سبز کردن» دستی - سبز شدن خودکار (بعد از سیو) تا وقتی کامیون همون‌جاست سبز می‌مونه، مستقل از این تنظیم.</div>
+    </div>
+    <button class="btn" type="submit">ذخیره</button>
+  </form>
+</div>
+{% endif %}
 <div class="card">
   <div class="card-header">
     <h3>دوربین‌ها / لاین‌ها</h3>

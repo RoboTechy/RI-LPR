@@ -91,15 +91,29 @@ OCR confidence alone). Only covers detections logged after the
 ## Traffic light (Raspberry Pi relay)
 
 Saving a permit (linked to a detection) turns that line's physical
-traffic light green for a while, then it reverts to red on its own -
-see `../pi-relay-service/README.md` for the Pi-side setup (wiring,
-GPIO pin mapping, systemd service) and `PI_RELAY_SERVICE_URL`/
-`PI_RELAY_API_KEY` above for pointing this backend at it. The
-دوربین‌ها page also shows each line's current light color with manual
-"سبز کردن"/"قرمز کردن" buttons - available to اوپراتور accounts too.
-If the Pi is unreachable, this never blocks saving a permit or breaks
-the admin panel (see `app/relay_client.py`) - the light just shows as
-"نامشخص".
+traffic light green - and keeps it green for exactly as long as the
+worker's camera still sees that truck (`WORKER_PRESENCE_GAP_SECONDS`/
+the IoU-based same-truck check, same logic used for DetectedPlate
+rows), reverting to red the moment it decides the truck has left. No
+fixed timer for this path on purpose - a truck can take however long
+it takes.
+
+The دوربین‌ها page also shows each line's current light color with
+manual "سبز کردن"/"قرمز کردن" buttons - available to اوپراتور accounts
+too, since this is routine day-to-day use, not service configuration.
+A *manual* green instead always reverts after a fixed duration -
+**مدیر**-editable right there on the same page (`manual_green_seconds`,
+an `AppSetting` row) - regardless of what any camera sees; this is a
+deliberately different, simpler behavior from the automatic case.
+
+See `../pi-relay-service/README.md` for the Pi-side setup (wiring, GPIO
+pin mapping, systemd service) and `PI_RELAY_SERVICE_URL`/
+`PI_RELAY_API_KEY` above for pointing this backend at it. If the Pi is
+unreachable, none of this ever blocks saving a permit or breaks the
+admin panel (see `app/relay_client.py`) - the light just shows as
+"نامشخص"، and `GET /admin/cameras/lights-status` (fetched by the page
+itself, asynchronously, after it's already rendered) is the only thing
+that ever waits on the Pi - not the page load itself.
 
 ## Notes / known simplifications (MVP, built under time pressure)
 
