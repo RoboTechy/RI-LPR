@@ -18,7 +18,11 @@ from .config import PI_RELAY_API_KEY, PI_RELAY_SERVICE_URL
 
 log = logging.getLogger(__name__)
 
-TIMEOUT_SECONDS = 5
+# Short - a reachable Pi on the same LAN responds in milliseconds; this
+# only matters for how long a *failed* call makes a caller wait, and
+# get_all_lights() in particular must never turn into several seconds
+# of dead time on an ordinary page load before the Pi's even set up.
+TIMEOUT_SECONDS = 2
 
 
 def set_light(line_number: int, color: str) -> bool:

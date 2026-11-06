@@ -29,10 +29,7 @@
           {% else %}<span class="pill danger">غیرفعال</span>{% endif %}
         </td>
         <td>
-          {% set light = lights.get(cam.line_number) %}
-          {% if light == "green" %}<span class="pill success">سبز</span>
-          {% elif light == "red" %}<span class="pill danger">قرمز</span>
-          {% else %}<span class="pill neutral">نامشخص</span>{% endif %}
+          <span class="pill neutral light-status" data-line="{{ cam.line_number }}">در حال بررسی…</span>
           <div class="actions" style="margin-top:6px;">
             <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/light/green">
               <button class="btn sm" type="submit" style="background:#16a34a;">سبز کردن</button>
@@ -61,4 +58,31 @@
   <div class="empty-state">هیچ دوربینی ثبت نشده</div>
   {% endif %}
 </div>
+<script>
+  // Fetched after the page has already rendered, on purpose - the
+  // relay service (Raspberry Pi) may not even be reachable yet, and
+  // this must never delay showing the camera list itself.
+  fetch('/admin/cameras/lights-status')
+    .then((r) => r.json())
+    .then((lights) => {
+      document.querySelectorAll('.light-status').forEach((el) => {
+        const color = lights[el.dataset.line];
+        if (color === 'green') {
+          el.textContent = 'سبز';
+          el.className = 'pill success light-status';
+        } else if (color === 'red') {
+          el.textContent = 'قرمز';
+          el.className = 'pill danger light-status';
+        } else {
+          el.textContent = 'نامشخص';
+          el.className = 'pill neutral light-status';
+        }
+      });
+    })
+    .catch(() => {
+      document.querySelectorAll('.light-status').forEach((el) => {
+        el.textContent = 'نامشخص';
+      });
+    });
+</script>
 {% endblock %}

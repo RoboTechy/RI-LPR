@@ -90,11 +90,21 @@ def visible_cameras(db: Session, admin: models.AdminUser):
 
 @router.get("/cameras")
 def cameras_list(request: Request, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)):
+    # Light status is fetched by the page itself afterwards (see
+    # cameras.html's own script, calling /admin/cameras/lights-status) -
+    # NOT here. This route must render instantly regardless of whether
+    # the Pi relay service is even reachable yet; blocking the whole
+    # page load on it was exactly the few-seconds-every-time slowness
+    # reported when the Pi wasn't set up.
     cameras = visible_cameras(db, admin)
-    lights = relay_client.get_all_lights()
-    return templates.TemplateResponse(
-        request, "cameras.html", {"admin": admin, "cameras": cameras, "lights": lights}
-    )
+    return templates.TemplateResponse(request, "cameras.html", {"admin": admin, "cameras": cameras})
+
+
+@router.get("/cameras/lights-status")
+def cameras_lights_status(admin: models.AdminUser = Depends(get_current_admin)):
+    """Fetched asynchronously by cameras.html after the page has already
+    rendered - see cameras_list() above for why this is separate."""
+    return relay_client.get_all_lights()
 
 
 @router.get("/cameras/new")
