@@ -53,19 +53,32 @@ def active_plates(db: Session = Depends(get_db)):
         except ValueError:
             return None
 
-    return [
-        schemas.ActivePlateOut(
-            id=row.id,
-            short_format=row.short_format,
-            plate_text=row.plate_text,
-            line_number=row.camera.line_number,
-            line_name=row.camera.name,
-            detected_at=row.detected_at.isoformat(),
-            confidence=parse_confidence(row.confidence),
+    result = []
+    seen = set()
+    for row in rows:
+        key = (row.camera_id, row.plate_text)
+        if key in suppressed or key in seen:
+            # Normally one still-parked truck is a single row, refreshed
+            # in place by the worker's same-truck (IoU) tracking - but
+            # that tracking lives in the worker process's memory, so a
+            # worker restart while a truck sits there can lose track and
+            # log a second, not-yet-consumed row for it. Rows are newest
+            # first here, so the first one seen per (camera, plate_text)
+            # is the one kept.
+            continue
+        seen.add(key)
+        result.append(
+            schemas.ActivePlateOut(
+                id=row.id,
+                short_format=row.short_format,
+                plate_text=row.plate_text,
+                line_number=row.camera.line_number,
+                line_name=row.camera.name,
+                detected_at=row.detected_at.isoformat(),
+                confidence=parse_confidence(row.confidence),
+            )
         )
-        for row in rows
-        if (row.camera_id, row.plate_text) not in suppressed
-    ]
+    return result
 
 
 @router.post("/permit-logs", response_model=schemas.PermitLogOut)
