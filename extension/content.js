@@ -30,8 +30,10 @@
   // --- Field/selector map, one entry per Rahkaran page this script cares about ---
   // IDs confirmed by inspecting the live page (see project chat history);
   // the "fvwMain_" prefix only appears on the Shipping (loading) permit
-  // page, not on Unloading - confirmed for the vehicle combobox, assumed
-  // (not yet verified) for the rest of the captureFieldIds on Shipping.
+  // page, not on Unloading - confirmed for the vehicle combobox and for
+  // `plate` (txtPlateIdentifier - DevTools-confirmed; an earlier guess,
+  // txtLiscenseNumber, turned out to actually hold the driver's national
+  // code, not the plate), assumed (not yet verified) for the rest.
   const PERMIT_PAGES = {
     shipping: {
       pageType: 'shipping',
@@ -39,7 +41,7 @@
       vehicleInputId: 'fvwMain_sltTransportationVehicle_Input',
       vehicleDropdownId: 'fvwMain_sltTransportationVehicle_DropDown',
       captureFieldIds: {
-        plate: 'fvwMain_txtLiscenseNumber',
+        plate: 'fvwMain_txtPlateIdentifier',
         transporter: 'fvwMain_sltTransporter_Input',
         permitType: 'fvwMain_lkpPermitType_ComboBox_Input',
         plant: 'fvwMain_sltPlant_Input',
@@ -53,7 +55,7 @@
       vehicleInputId: 'sltTransportationVehicle_Input',
       vehicleDropdownId: 'sltTransportationVehicle_DropDown',
       captureFieldIds: {
-        plate: 'txtLiscenseNumber',
+        plate: 'txtPlateIdentifier',
         transporter: 'sltTransporter_Input',
         permitType: 'lkpPermitType_ComboBox_Input',
         plant: 'sltPlant_Input',
