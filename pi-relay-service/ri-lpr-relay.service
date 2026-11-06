@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/pi/ri-lpr/pi-relay-service
-ExecStart=/usr/bin/python3 /home/pi/ri-lpr/pi-relay-service/relay_service.py
+ExecStart=/home/pi/ri-lpr/pi-relay-service/.venv/bin/python3 /home/pi/ri-lpr/pi-relay-service/relay_service.py
 EnvironmentFile=-/home/pi/ri-lpr/pi-relay-service/.env
 Restart=on-failure
 RestartSec=3

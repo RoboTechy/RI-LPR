@@ -52,9 +52,14 @@ wiring or polarity mistake on one line than on six.
 ```bash
 # on the Pi, with this repo cloned (or just this folder copied over)
 cd pi-relay-service
-python3 -m venv .venv && source .venv/bin/activate   # optional but recommended
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+The venv is **not optional** - `ri-lpr-relay.service` runs the script with
+`.venv/bin/python3` directly, so the packages above must end up inside
+that venv (not installed system-wide) or the systemd service will fail
+with `ModuleNotFoundError` even if your manual test run worked.
 
 Edit `config.py`:
 - `LINE_TO_PIN` - which BCM GPIO pin drives which line's relay. The
