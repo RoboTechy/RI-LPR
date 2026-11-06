@@ -119,6 +119,10 @@ class PermitLog(Base):
 
     plate = Column(String(50), nullable=True)
     transporter = Column(String(255), nullable=True)
+    # The transporter's license-number/national-code field, auto-filled by
+    # Rahkaran once a transporter is picked (separate DOM field from the
+    # name combobox above - see extension/content.js's captureFieldIds).
+    transporter_national_code = Column(String(50), nullable=True)
     permit_type = Column(String(255), nullable=True)
     plant = Column(String(255), nullable=True)
     loading_point = Column(String(255), nullable=True)

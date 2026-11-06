@@ -30,10 +30,16 @@
   // --- Field/selector map, one entry per Rahkaran page this script cares about ---
   // IDs confirmed by inspecting the live page (see project chat history);
   // the "fvwMain_" prefix only appears on the Shipping (loading) permit
-  // page, not on Unloading - confirmed for the vehicle combobox and for
-  // `plate` (txtPlateIdentifier - DevTools-confirmed; an earlier guess,
-  // txtLiscenseNumber, turned out to actually hold the driver's national
-  // code, not the plate), assumed (not yet verified) for the rest.
+  // page, not on Unloading - confirmed for the vehicle combobox, for
+  // `plate` (txtPlateIdentifier - DevTools-confirmed), for `transporter`
+  // (sltTransporter_Input - DevTools-confirmed to hold the driver's
+  // NAME, e.g. "محمد رضا قره قونی"), and for `transporterNationalCode`
+  // (txtLiscenseNumber - a separate, disabled textbox that Rahkaran
+  // auto-fills with that same driver's license-number/national-code
+  // once picked from the combo above - DevTools-confirmed value
+  // "5130062620" for that same driver). This is the field an earlier
+  // guess wrongly assumed was the plate - it never was, but it's the
+  // right field for this. Assumed (not yet verified) for the rest.
   const PERMIT_PAGES = {
     shipping: {
       pageType: 'shipping',
@@ -43,6 +49,7 @@
       captureFieldIds: {
         plate: 'fvwMain_txtPlateIdentifier',
         transporter: 'fvwMain_sltTransporter_Input',
+        transporterNationalCode: 'fvwMain_txtLiscenseNumber',
         permitType: 'fvwMain_lkpPermitType_ComboBox_Input',
         plant: 'fvwMain_sltPlant_Input',
         loadingPoint: 'fvwMain_sltLoadingPoint_Input',
@@ -57,6 +64,7 @@
       captureFieldIds: {
         plate: 'txtPlateIdentifier',
         transporter: 'sltTransporter_Input',
+        transporterNationalCode: 'txtLiscenseNumber',
         permitType: 'lkpPermitType_ComboBox_Input',
         plant: 'sltPlant_Input',
         loadingPoint: 'sltLoadingPoint_Input',
@@ -363,6 +371,7 @@
         page_url: window.location.href,
         plate: data.plate,
         transporter: data.transporter,
+        transporter_national_code: data.transporterNationalCode,
         permit_type: data.permitType,
         plant: data.plant,
         loading_point: data.loadingPoint,

@@ -19,6 +19,7 @@ class PermitLogIn(BaseModel):
     page_url: Optional[str] = None
     plate: Optional[str] = None
     transporter: Optional[str] = None
+    transporter_national_code: Optional[str] = None
     permit_type: Optional[str] = None
     plant: Optional[str] = None
     loading_point: Optional[str] = None

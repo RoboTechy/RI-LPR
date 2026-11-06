@@ -66,6 +66,18 @@ docker compose exec db psql -U ri_lpr -d ri_lpr -c \
 Detections logged before this runs simply have `plate_box = NULL` and
 are skipped by the export script - nothing else is affected.
 
+A `transporter_national_code` column was also added to `permit_logs`
+(the transporter's auto-filled license-number/national-code field,
+alongside the existing `transporter` name field - see گزارش‌ها page).
+Same situation - run this once too:
+
+```bash
+docker compose exec db psql -U ri_lpr -d ri_lpr -c \
+  "ALTER TABLE permit_logs ADD COLUMN IF NOT EXISTS transporter_national_code VARCHAR(50);"
+```
+
+Permits saved before this runs simply have it as `NULL`.
+
 ## Exporting a fine-tuning dataset
 
 For collecting training data while the system is new - deliberately

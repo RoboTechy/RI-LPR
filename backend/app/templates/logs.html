@@ -14,9 +14,11 @@
     <thead>
       <tr>
         <th>تاریخ</th>
-        <th>شماره پلاک</th>
+        <th>پلاک ثبت‌شده (اوپراتور)</th>
+        <th>پلاک تشخیص‌داده‌شده (سیستم)</th>
         <th>نوع مجوز</th>
         <th>حمل‌کننده</th>
+        <th>کد ملی حمل‌کننده</th>
         <th>مرکز نگهداری</th>
         <th>جایگاه</th>
         <th>وسیله حمل</th>
@@ -27,11 +29,19 @@
     </thead>
     <tbody>
       {% for log in logs %}
+      {% set detected_plate_text = log.detected_plate.short_format if log.detected_plate else none %}
+      {% set mismatch = detected_plate_text and log.plate and detected_plate_text != log.plate %}
       <tr>
         <td>{{ jalali(log.created_at) }}</td>
-        <td><strong>{{ log.plate or "-" }}</strong></td>
+        <td dir="ltr"><strong>{{ log.plate or "-" }}</strong></td>
+        <td dir="ltr">
+          {% if detected_plate_text %}
+            <span class="{{ 'pill danger' if mismatch else '' }}">{{ detected_plate_text }}</span>
+          {% else %}-{% endif %}
+        </td>
         <td><span class="pill neutral">{{ "بارگیری" if log.page_type == "shipping" else "تخلیه" }}</span></td>
         <td>{{ log.transporter or "-" }}</td>
+        <td dir="ltr">{{ log.transporter_national_code or "-" }}</td>
         <td>{{ log.plant or "-" }}</td>
         <td>{{ log.loading_point or "-" }}</td>
         <td>{{ log.vehicle or "-" }}</td>

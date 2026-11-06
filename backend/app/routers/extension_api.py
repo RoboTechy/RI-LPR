@@ -89,6 +89,7 @@ def create_permit_log(payload: schemas.PermitLogIn, request: Request, db: Sessio
         page_url=payload.page_url,
         plate=payload.plate,
         transporter=payload.transporter,
+        transporter_national_code=payload.transporter_national_code,
         permit_type=payload.permit_type,
         plant=payload.plant,
         loading_point=payload.loading_point,
