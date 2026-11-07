@@ -9,17 +9,21 @@ from ultralytics import YOLO
 
 # Every active camera's polling thread (camera_worker.py's camera_loop(),
 # one per line) AND the admin panel's on-demand "تست تشخیص پلاک" button
-# (test_server.py) run in the SAME worker process and call into these
-# same cached model objects (see _get_vehicle_detector() etc. below) -
-# with no synchronization, that's concurrent calls into the same YOLO
-# model instance from multiple threads, which ultralytics doesn't
-# guarantee is safe, and which also means an on-demand test has to fight
-# every live camera's thread for CPU time, with no bound on how long
-# that takes. Serializing every model call through this one lock fixes
-# both: correctness (no two threads ever run inference on the same model
-# at once) and makes the worst case for a manual test bounded (it waits
-# for at most one in-flight inference call per model, not an unbounded race).
-_inference_lock = threading.Lock()
+# (test_server.py) run in the SAME worker process. An earlier version of
+# this file cached one YOLO instance per model GLOBALLY and shared it
+# across every thread, serialized through a single lock to make that
+# safe - but on a CPU-only box with 6 cameras polling concurrently, that
+# lock meant only ONE thread could ever run inference at a time, process-
+# wide, even though several CPU cores sat idle: each camera's RTSP read
+# buffer (cv2.VideoCapture, which always returns its OLDEST buffered
+# frame, not the newest) fell further and further behind while waiting
+# its turn, which is almost certainly why detections felt slow again
+# even after that fix. Models are cached per-THREAD instead now (each
+# camera's own loop thread, and the test endpoint's own request thread,
+# gets its own private model instances on first use) - no two threads
+# ever touch the same model object, so no lock is needed at all, and
+# cameras can genuinely run inference in parallel again.
+_thread_local = threading.local()
 
 def filter_boxes_by_class(boxes, cls_ids):
     """
@@ -121,14 +125,10 @@ DEFAULT_CHAR_MODEL_PATH = "models/ir_lpr_char_detector.pt"
 PLATE_LENGTH = 8
 LETTER_POSITION = 2
 
-_char_detector = None
-
-
 def _get_char_detector(char_model_path):
-    global _char_detector
-    if _char_detector is None:
-        _char_detector = YOLO(char_model_path)
-    return _char_detector
+    if getattr(_thread_local, "char_detector", None) is None:
+        _thread_local.char_detector = YOLO(char_model_path)
+    return _thread_local.char_detector
 
 
 # Generic (COCO-trained) detector used only to find "where's the vehicle"
@@ -136,14 +136,10 @@ def _get_char_detector(char_model_path):
 # from disk on every single call before this fix, which dominated the
 # per-frame processing time badly enough to cause noticeable end-to-end
 # delay for a production worker polling every few seconds).
-_vehicle_detector = None
-
-
 def _get_vehicle_detector():
-    global _vehicle_detector
-    if _vehicle_detector is None:
-        _vehicle_detector = YOLO("yolo11n.pt")
-    return _vehicle_detector
+    if getattr(_thread_local, "vehicle_detector", None) is None:
+        _thread_local.vehicle_detector = YOLO("yolo11n.pt")
+    return _thread_local.vehicle_detector
 
 
 # COCO class ids this pipeline looks for as "the vehicle" in a photo.
@@ -160,24 +156,22 @@ VEHICLE_CLASS_IDS = (2, 5, 7)
 # types ir_lpr_plate_detector.pt never saw (e.g. trucks - IR-LPR training
 # data was passenger cars only) without needing new training data.
 GENERAL_PLATE_MODEL_NAME = "yolo-v9-t-384-license-plate-end2end"
-_general_plate_detector = None
 
 
 def _get_general_plate_detector():
-    global _general_plate_detector
-    if _general_plate_detector is None:
+    if getattr(_thread_local, "general_plate_detector", None) is None:
         from open_image_models.detection.factory import create_detector
-        _general_plate_detector = create_detector(GENERAL_PLATE_MODEL_NAME)
-    return _general_plate_detector
-
-
-_plate_detectors = {}  # one cached YOLO instance per distinct plate_model_path seen
+        _thread_local.general_plate_detector = create_detector(GENERAL_PLATE_MODEL_NAME)
+    return _thread_local.general_plate_detector
 
 
 def _get_plate_detector(plate_model_path):
-    if plate_model_path not in _plate_detectors:
-        _plate_detectors[plate_model_path] = YOLO(plate_model_path)
-    return _plate_detectors[plate_model_path]
+    # one cached YOLO instance per distinct plate_model_path seen, per thread
+    if not hasattr(_thread_local, "plate_detectors"):
+        _thread_local.plate_detectors = {}
+    if plate_model_path not in _thread_local.plate_detectors:
+        _thread_local.plate_detectors[plate_model_path] = YOLO(plate_model_path)
+    return _thread_local.plate_detectors[plate_model_path]
 
 
 def _detect_plate_box(cropped_vehicle_image, plate_model_path):
@@ -186,15 +180,13 @@ def _detect_plate_box(cropped_vehicle_image, plate_model_path):
         print(f"{plate_model_path} not found, falling back to {FALLBACK_PLATE_MODEL_PATH}")
         plate_model_path = FALLBACK_PLATE_MODEL_PATH
     model = _get_plate_detector(plate_model_path)
-    with _inference_lock:
-        results = model(cropped_vehicle_image)
+    results = model(cropped_vehicle_image)
     if len(results[0].boxes) > 0:
         return results[0].boxes[0].xyxy[0].cpu().numpy()
 
     print(f"{plate_model_path} found no plate, trying general-purpose fallback detector "
           f"(handles vehicle types it wasn't trained on, e.g. trucks)")
-    with _inference_lock:
-        detections = _get_general_plate_detector().predict(cropped_vehicle_image)
+    detections = _get_general_plate_detector().predict(cropped_vehicle_image)
     if not detections:
         return None
     best = max(detections, key=lambda d: d.confidence)
@@ -223,8 +215,7 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
     """
     # find the biggest car/truck in the image
     yolo_model = _get_vehicle_detector()
-    with _inference_lock:
-        car_results = yolo_model(image_name)
+    car_results = yolo_model(image_name)
     car_boxes = filter_boxes_by_class(car_results[0].boxes, VEHICLE_CLASS_IDS)
 
     if len(car_boxes) == 0:
@@ -442,8 +433,7 @@ def read_plate(image_name, char_model_path=DEFAULT_CHAR_MODEL_PATH,
         return_vehicle_crop=True, return_boxes=True)
 
     char_model = _get_char_detector(char_model_path)
-    with _inference_lock:
-        results = char_model(plate_crop, verbose=False)[0]
+    results = char_model(plate_crop, verbose=False)[0]
 
     detections = []
     for box in results.boxes:
