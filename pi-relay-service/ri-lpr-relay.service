@@ -5,12 +5,23 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/pi/ri-lpr/pi-relay-service
-ExecStart=/home/pi/ri-lpr/pi-relay-service/.venv/bin/python3 /home/pi/ri-lpr/pi-relay-service/relay_service.py
-EnvironmentFile=-/home/pi/ri-lpr/pi-relay-service/.env
+# REPLACE "REPLACE_ME_HOME" below with the real path this repo was
+# cloned into (e.g. /home/yourusername/ri-lpr/pi-relay-service) - on
+# Ubuntu Desktop there is no "pi" user by default, unlike Raspberry Pi
+# OS, so this can't be filled in with a safe guess. Run `pwd` inside
+# pi-relay-service to get the exact value.
+WorkingDirectory=REPLACE_ME_HOME/ri-lpr/pi-relay-service
+ExecStart=REPLACE_ME_HOME/ri-lpr/pi-relay-service/.venv/bin/python3 REPLACE_ME_HOME/ri-lpr/pi-relay-service/relay_service.py
+EnvironmentFile=-REPLACE_ME_HOME/ri-lpr/pi-relay-service/.env
 Restart=on-failure
 RestartSec=3
-User=pi
+# Running as root on purpose: Ubuntu Desktop doesn't ship the same
+# gpio-group udev rules Raspberry Pi OS does, so a non-root user isn't
+# guaranteed access to /dev/gpiochip0 - see README.md. Harden this
+# later (dedicated user + a udev rule) once that's confirmed on the
+# real machine; for now this avoids a silent permission failure on the
+# one thing this whole service exists to do.
+User=root
 
 [Install]
 WantedBy=multi-user.target

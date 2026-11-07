@@ -2,11 +2,23 @@
 
 Switches each line's traffic light between red and green via a relay
 board, controlled over HTTP from the backend. Runs directly on a
-Raspberry Pi 4B (8GB) on the plant network - **not** a container, not
-part of `backend/docker-compose.yml`. Keep it that way: GPIO access
-from inside Docker needs extra privileged flags/device mounts for no
-real benefit here, and this one small Python process is simpler to
-reason about running straight on the Pi's own OS.
+Raspberry Pi 4B (8GB) on the plant network, booting **Ubuntu Desktop**
+(not Raspberry Pi OS) - **not** a container, not part of
+`backend/docker-compose.yml`. Keep it that way: GPIO access from
+inside Docker needs extra privileged flags/device mounts for no real
+benefit here, and this one small Python process is simpler to reason
+about running straight on the Pi's own OS.
+
+Running Ubuntu instead of Raspberry Pi OS doesn't change the GPIO
+story - gpiozero's `lgpio` backend talks to the kernel's standard
+`/dev/gpiochip0` character device, which Ubuntu's Raspberry Pi kernel
+exposes the same way - but it does mean two things called out below
+where they matter: there's no "pi" user/home directory to assume by
+default (every path below needs the real username substituted in),
+and Ubuntu doesn't ship the same `gpio`-group udev rules Raspberry Pi
+OS does, so `ri-lpr-relay.service` runs as root (see that file's own
+comment) rather than guessing at a permission setup this hasn't been
+verified against.
 
 ## Wiring (as discussed)
 
@@ -103,8 +115,26 @@ sleep 10 && curl -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/lights   # 
 curl -X POST -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/light/1/red-if-auto
 ```
 
-Once that's confirmed, install it as a systemd service so it survives
-reboots and restarts itself if it crashes:
+Once that's confirmed, install it as a systemd service - this is what
+makes it both restart itself if it ever crashes (`Restart=on-failure`)
+**and** come back up on its own after a power outage: `systemctl
+enable` makes the unit start on every boot, power-cycle included, with
+no login or desktop session needed (it runs at the `multi-user.target`
+level, independent of whether anyone's logged into Ubuntu Desktop's
+GUI).
+
+First, edit `ri-lpr-relay.service` and replace every `REPLACE_ME_HOME`
+with this folder's real path - run `pwd` right here to get it (there's
+no "pi" user on Ubuntu Desktop to assume by default, unlike Raspberry
+Pi OS):
+
+```bash
+pwd   # should end in .../ri-lpr/pi-relay-service - copy the part before "/ri-lpr"
+sed -i "s#REPLACE_ME_HOME#$(cd ../.. && pwd)#g" ri-lpr-relay.service
+cat ri-lpr-relay.service   # double-check the three paths look right (no "REPLACE_ME_HOME" left, no doubled "ri-lpr")
+```
+
+Then install it:
 
 ```bash
 sudo cp ri-lpr-relay.service /etc/systemd/system/
@@ -113,9 +143,10 @@ sudo systemctl enable --now ri-lpr-relay
 sudo systemctl status ri-lpr-relay    # should show "active (running)"
 ```
 
-(The unit file assumes this folder lives at `/home/pi/ri-lpr/pi-relay-service`
-and runs as the `pi` user - edit the paths/`User=` in
-`ri-lpr-relay.service` first if that doesn't match your setup.)
+To actually prove the power-loss case (not just a normal reboot):
+`sudo systemctl status ri-lpr-relay` right after a full power cycle
+(unplug/replug, not `reboot`) - should already show "active (running)"
+by the time you can log back in, with no manual step.
 
 ## Wiring this into the backend
 
