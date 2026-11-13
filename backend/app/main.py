@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import MEDIA_ROOT, SESSION_SECRET_KEY
@@ -33,6 +34,14 @@ app.include_router(admin.router)
 
 @app.on_event("startup")
 def on_startup():
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as connection:
+            connection.execute(text("""
+                ALTER TABLE permit_logs
+                ADD COLUMN IF NOT EXISTS shown_plate_detection_id INTEGER,
+                ADD COLUMN IF NOT EXISTS plate_source VARCHAR(32)
+            """))
+
     db = SessionLocal()
     try:
         ensure_default_admin(db)

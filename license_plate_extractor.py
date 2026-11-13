@@ -174,29 +174,32 @@ def _get_plate_detector(plate_model_path):
     return _thread_local.plate_detectors[plate_model_path]
 
 
-def _detect_plate_box(cropped_vehicle_image, plate_model_path):
+def _detect_plate_box(cropped_vehicle_image, plate_model_path, accept_box=None):
     """Return the plate's (xmin, ymin, xmax, ymax) in cropped_vehicle_image, or None if not found."""
     if not Path(plate_model_path).exists():
         print(f"{plate_model_path} not found, falling back to {FALLBACK_PLATE_MODEL_PATH}")
         plate_model_path = FALLBACK_PLATE_MODEL_PATH
     model = _get_plate_detector(plate_model_path)
     results = model(cropped_vehicle_image)
-    if len(results[0].boxes) > 0:
-        return results[0].boxes[0].xyxy[0].cpu().numpy()
+    for detection in results[0].boxes:
+        box = detection.xyxy[0].cpu().numpy()
+        if accept_box is None or accept_box(box):
+            return box
 
     print(f"{plate_model_path} found no plate, trying general-purpose fallback detector "
           f"(handles vehicle types it wasn't trained on, e.g. trucks)")
     detections = _get_general_plate_detector().predict(cropped_vehicle_image)
-    if not detections:
-        return None
-    best = max(detections, key=lambda d: d.confidence)
-    box = best.bounding_box
-    return np.array([box.x1, box.y1, box.x2, box.y2], dtype=float)
+    for detection in sorted(detections or [], key=lambda d: d.confidence, reverse=True):
+        bounds = detection.bounding_box
+        box = np.array([bounds.x1, bounds.y1, bounds.x2, bounds.y2], dtype=float)
+        if accept_box is None or accept_box(box):
+            return box
+    return None
 
 
 def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
                            plate_model_path=DEFAULT_PLATE_MODEL_PATH,
-                           return_vehicle_crop=False, return_boxes=False):
+                           return_vehicle_crop=False, return_boxes=False, lane_region=None):
     """Detect the car/truck, then the plate within it, and return the cropped plate image (RGB).
 
     Split out of extract_digits() so other pipelines (e.g. a character
@@ -217,6 +220,19 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
     yolo_model = _get_vehicle_detector()
     car_results = yolo_model(image_name)
     car_boxes = filter_boxes_by_class(car_results[0].boxes, VEHICLE_CLASS_IDS)
+    outside_lane = []
+    if lane_region is not None:
+        height, width = car_results[0].orig_shape
+        region = np.asarray(lane_region, dtype=np.float32)
+        inside_lane = []
+        for box in car_boxes:
+            x = float(box[0] + box[2]) / (2 * width)
+            y = min(float(box[3]), height - 1) / height
+            if cv2.pointPolygonTest(region, (x, y), False) >= 0:
+                inside_lane.append(box)
+            else:
+                outside_lane.append(box)
+        car_boxes = inside_lane
 
     if len(car_boxes) == 0:
         raise ValueError("No cars or trucks detected in the image.")
@@ -256,7 +272,18 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
     # (retrained on the IR-LPR dataset - see models/README.md; falls back
     # to the original small-dataset weights if that model isn't present,
     # then to a general-purpose detector if even that finds nothing)
-    license_box = _detect_plate_box(cropped_car_image, plate_model_path)
+    def belongs_to_selected_vehicle(box):
+        # A large vehicle crop can also contain a separately detected truck
+        # behind the separator. Ignore plates centered in that truck's box.
+        x = (box[0] + box[2]) / 2 + int(car_bbox[0])
+        y = (box[1] + box[3]) / 2 + int(car_bbox[1])
+        return not any(left <= x <= right and top <= y <= bottom
+                       for left, top, right, bottom in outside_lane)
+
+    license_box = _detect_plate_box(
+        cropped_car_image, plate_model_path,
+        accept_box=belongs_to_selected_vehicle if outside_lane else None,
+    )
     if license_box is None:
         raise ValueError("No license plate detected in the cropped vehicle image.")
 
@@ -399,7 +426,7 @@ def extract_digits(image_name, min_area=0.005, max_area=0.05, debug=False, show=
 
 
 def read_plate(image_name, char_model_path=DEFAULT_CHAR_MODEL_PATH,
-                plate_model_path=DEFAULT_PLATE_MODEL_PATH):
+                plate_model_path=DEFAULT_PLATE_MODEL_PATH, lane_region=None):
     """Full pipeline (vehicle -> plate -> characters), with a hard pass/fail
     gate instead of a printed warning - this is what a production worker
     should call, not detect_and_crop_plate()/the char model directly.
@@ -430,7 +457,7 @@ def read_plate(image_name, char_model_path=DEFAULT_CHAR_MODEL_PATH,
     """
     plate_crop, vehicle_crop, vehicle_box, plate_box = detect_and_crop_plate(
         image_name, plate_model_path=plate_model_path,
-        return_vehicle_crop=True, return_boxes=True)
+        return_vehicle_crop=True, return_boxes=True, lane_region=lane_region)
 
     char_model = _get_char_detector(char_model_path)
     results = char_model(plate_crop, verbose=False)[0]

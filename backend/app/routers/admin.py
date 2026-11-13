@@ -18,6 +18,7 @@ from ..security import (
     verify_password,
 )
 from ..settings import get_manual_green_seconds, set_manual_green_seconds
+from .extension_api import plate_digits
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -397,6 +398,7 @@ def logs_list(
         {
             "admin": admin,
             "logs": logs,
+            "plate_digits": plate_digits,
             "plate": plate,
             "page": page,
             "has_next": page * page_size < total,

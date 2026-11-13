@@ -16,10 +16,11 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 
 import cv2
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 
-from pipeline_utils import CHAR_MODEL_PATH, PLATE_MODEL_PATH, format_plate_short, save_image
+from pipeline_utils import CHAR_MODEL_PATH, LANE_REGIONS, PLATE_MODEL_PATH, format_plate_short, save_image
 
 from app import models  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
@@ -62,6 +63,16 @@ def _grab_one_frame(rtsp_url):
         ex.shutdown(wait=False)
 
 
+@app.get("/lane-status")
+def lane_status():
+    return app.state.lane_status_snapshot()
+
+
+@app.post("/reread-plate/{camera_id}")
+def reread_plate(camera_id: int):
+    return app.state.request_plate_reread(camera_id)
+
+
 @app.post("/test-camera/{camera_id}")
 def test_camera(camera_id: int):
     db = SessionLocal()
@@ -70,6 +81,7 @@ def test_camera(camera_id: int):
         if camera is None:
             return {"success": False, "error": "دوربین پیدا نشد"}
         rtsp_url = camera.rtsp_url
+        lane_region = LANE_REGIONS.get(camera.line_number)
     finally:
         db.close()
 
@@ -82,6 +94,10 @@ def test_camera(camera_id: int):
     # match what read_plate() draws its boxes' coordinates against
     # (detect_and_crop_plate() works in RGB throughout).
     annotated = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    if lane_region is not None:
+        height, width = annotated.shape[:2]
+        outline = np.rint(np.asarray(lane_region) * (width - 1, height - 1)).astype(np.int32)
+        cv2.polylines(annotated, [outline], True, (0, 220, 255), 4)
 
     ocr_success = False
     ocr_text = None
@@ -94,7 +110,10 @@ def test_camera(camera_id: int):
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp_path = tmp.name
         cv2.imwrite(tmp_path, frame)
-        result = read_plate(tmp_path, char_model_path=CHAR_MODEL_PATH, plate_model_path=PLATE_MODEL_PATH)
+        result = read_plate(
+            tmp_path, char_model_path=CHAR_MODEL_PATH, plate_model_path=PLATE_MODEL_PATH,
+            lane_region=lane_region,
+        )
     except ValueError as exc:
         # expected/common case: no truck (or no plate on it) in this
         # particular frame - not a real error, just nothing to draw.

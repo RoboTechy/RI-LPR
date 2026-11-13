@@ -113,6 +113,8 @@ class PermitLog(Base):
 
     id = Column(Integer, primary_key=True)
     detected_plate_id = Column(Integer, ForeignKey("detected_plates.id"), nullable=True)
+    shown_plate_detection_id = Column(Integer, nullable=True)
+    plate_source = Column(String(32), nullable=True)
 
     page_type = Column(String(20), nullable=False)   # "shipping" | "unloading"
     page_url = Column(Text, nullable=True)

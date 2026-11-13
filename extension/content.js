@@ -86,20 +86,29 @@
   // all cameras) is shown, each labeled with its line number - the
   // operator picks whichever one matches the truck actually in front
   // of them (confirmed with the user).
-  async function fetchActivePlates() {
+  async function fetchPlateOverlay() {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/plates/active`, {
+      const res = await fetch(`${API_BASE_URL}/api/plates/overlay`, {
         headers: { 'X-API-Key': API_KEY },
       });
       if (!res.ok) {
         console.warn('[RI-LPR] backend returned', res.status, 'fetching active plates');
-        return [];
+        return null;
       }
       return await res.json();
     } catch (err) {
-      console.warn('[RI-LPR] could not reach the backend for active plates:', err);
-      return [];
+      console.warn('[RI-LPR] could not reach the backend for the plate list:', err);
+      return null;
     }
+  }
+
+  async function rereadLane(lineNumber) {
+    const response = await fetch(`${API_BASE_URL}/api/plates/reread/${lineNumber}`, {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY },
+    });
+    if (!response.ok) throw new Error(`Reread request failed: ${response.status}`);
+    return response.json();
   }
 
   async function logPermitToBackend(payload) {
@@ -181,15 +190,15 @@
   function confidenceLabel(confidence) {
     if (confidence === null || confidence === undefined) return null;
     return confidence >= CONFIDENCE_GOOD_THRESHOLD
-      ? { text: 'تشخیص خوب', cls: 'good' }
-      : { text: 'تشخیص ضعیف', cls: 'weak' };
+      ? { text: 'خوب', cls: 'good' }
+      : { text: 'ضعیف', cls: 'weak' };
   }
 
   // Shows the live "detected plates" list under the vehicle field and
-  // keeps it refreshed (every 4s) while it stays open, so a plate that
+  // keeps it refreshed (about once per second) while it stays open, so a plate that
   // appears while the operator is looking shows up without them having
   // to close/reopen it.
-  function buildOverlay(anchorInput, onPick) {
+  function buildOverlay(anchorInput, onPick, onShown) {
     const existing = document.getElementById('ri-lpr-overlay');
     if (existing) existing.remove();
 
@@ -210,18 +219,146 @@
     const listEl = document.createElement('div');
     box.appendChild(listEl);
 
+    const laneDetails = document.createElement('details');
+    laneDetails.className = 'ri-lpr-lane-details';
+    const laneSummary = document.createElement('summary');
+    laneSummary.textContent = 'وضعیت لاین‌ها';
+    laneDetails.appendChild(laneSummary);
+    const laneRows = document.createElement('div');
+    laneDetails.appendChild(laneRows);
+    box.appendChild(laneDetails);
+
+    const rereadStatus = document.createElement('div');
+    rereadStatus.className = 'ri-lpr-reread-status';
+    rereadStatus.setAttribute('role', 'status');
+    box.appendChild(rereadStatus);
     document.body.appendChild(box);
 
-    function renderList(plates) {
+    const pendingRereads = new Set();
+    let lastRenderedPlates;
+    let lastRenderedLanes;
+    let liveLanes = [];
+    let rereadNotice;
+
+    function showLaneStatuses() {
+      const inlineNotice = laneDetails.open && rereadNotice &&
+        liveLanes.some((lane) => lane.line_number === rereadNotice.line) ? rereadNotice : null;
+      rereadStatus.textContent = rereadNotice && !inlineNotice
+        ? `لاین ${rereadNotice.line} — ${rereadNotice.message}`
+        : '';
+      renderLaneStatuses(liveLanes, inlineNotice);
+    }
+    laneDetails.addEventListener('toggle', showLaneStatuses);
+
+    function setRereadButtons(line, disabled) {
+      for (const button of box.querySelectorAll(`button[data-line="${line}"]`)) {
+        button.disabled = disabled;
+      }
+    }
+
+    const hiddenPlateReasons = {
+      permit_saved: 'مجوز این پلاک قبلاً ثبت شده است',
+      permit_recent: 'مجوز این پلاک ثبت شده؛ مهلت ثبت مجدد هنوز تمام نشده است',
+      newer_detection: 'پلاک تازه‌تری در این لاین ثبت شده است',
+      expired: 'زمان نمایش این پلاک تمام شده است',
+      updating: 'منتظر به‌روزرسانی فهرست',
+    };
+
+    async function reread(line) {
+      if (pendingRereads.has(line)) return;
+      pendingRereads.add(line);
+      setRereadButtons(line, true);
+      const notice = { line, message: 'در حال خواندن مجدد…' };
+      rereadNotice = notice;
+      showLaneStatuses();
+      const messages = {
+        available: 'پلاک دوباره خوانده شد',
+        not_available: hiddenPlateReasons.updating,
+        empty: 'لاین خالی است',
+        no_read: 'خواندن مطمئن پلاک ممکن نشد',
+        busy: 'خواندن مجدد در حال انجام است',
+        unavailable: 'پردازشگر در دسترس نیست',
+      };
+      let result;
+      try {
+        result = await rereadLane(line);
+      } catch {
+        result = { status: 'unavailable' };
+      } finally {
+        pendingRereads.delete(line);
+        setRereadButtons(line, false);
+      }
+      if (!box.isConnected || rereadNotice !== notice) return;
+
+      notice.message = hiddenPlateReasons[result.reason] || messages[result.status] || messages.unavailable;
+      notice.status = result.status === 'no_read' ? 'unreadable' : result.status;
+      notice.reason = result.reason;
+      showLaneStatuses();
+      setTimeout(() => {
+        if (rereadNotice !== notice) return;
+        rereadNotice = undefined;
+        if (box.isConnected) showLaneStatuses();
+      }, 4000);
+    }
+
+    function makeRereadButton(line) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ri-lpr-reread-button';
+      button.dataset.line = line;
+      button.title = `خواندن مجدد پلاک لاین ${line}`;
+      button.setAttribute('aria-label', button.title);
+      button.textContent = '↻';
+      button.disabled = pendingRereads.has(line);
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        reread(line);
+      });
+      return button;
+    }
+
+    function renderLaneStatuses(lanes, inlineNotice) {
+      const signature = JSON.stringify([lanes, inlineNotice]);
+      if (signature === lastRenderedLanes) return;
+      lastRenderedLanes = signature;
+      laneRows.replaceChildren();
+      const labels = {
+        empty: 'خالی',
+        unreadable: 'خودرو حاضر، پلاک ناخوانا',
+        available: 'پلاک قابل‌انتخاب',
+        not_available: hiddenPlateReasons.updating,
+        unavailable: 'تصویر در دسترس نیست',
+        disabled: 'غیرفعال',
+      };
+      for (const lane of lanes) {
+        const row = document.createElement('div');
+        row.className = 'ri-lpr-lane-row';
+        const label = document.createElement('span');
+        const message = inlineNotice?.line === lane.line_number ? inlineNotice.message
+          : hiddenPlateReasons[lane.reason] || labels[lane.status] || labels.unavailable;
+        label.textContent = `لاین ${lane.line_number} — ${message}`;
+        row.appendChild(label);
+        if (lane.status !== 'disabled') row.appendChild(makeRereadButton(lane.line_number));
+        laneRows.appendChild(row);
+      }
+    }
+
+    function renderList(plates, emptyMessage) {
+      const orderedPlates = [...plates].sort((a, b) => a.id - b.id);
+      const signature = JSON.stringify([emptyMessage, ...orderedPlates.map(
+        (plate) => [plate.id, plate.short_format, plate.line_number, plate.confidence],
+      )]);
+      if (signature === lastRenderedPlates) return;
+      lastRenderedPlates = signature;
       listEl.innerHTML = '';
       if (plates.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'ri-lpr-overlay-empty';
-        empty.textContent = 'در حال حاضر پلاکی شناسایی نشده';
+        empty.textContent = emptyMessage;
         listEl.appendChild(empty);
         return;
       }
-      plates.forEach((plate) => {
+      orderedPlates.forEach((plate) => {
         const item = document.createElement('div');
         item.className = 'ri-lpr-overlay-item';
 
@@ -237,35 +374,67 @@
           item.appendChild(badge);
         }
 
+        item.appendChild(makeRereadButton(plate.line_number));
+
         item.addEventListener('click', () => {
-          stopRefresh();
-          box.remove();
+          closeOverlay();
           onPick(plate);
         });
         listEl.appendChild(item);
       });
     }
 
-    async function refresh() {
-      const plates = await fetchActivePlates();
-      if (!document.body.contains(box)) return; // closed while the fetch was in flight
-      renderList(plates);
+    let refreshTimer;
+    function stopRefresh() {
+      clearTimeout(refreshTimer);
     }
 
-    const intervalId = setInterval(refresh, 4000);
-    function stopRefresh() {
-      clearInterval(intervalId);
+    async function refresh() {
+      if (!box.isConnected || !anchorInput.isConnected) {
+        closeOverlay();
+        return;
+      }
+      const overlay = await fetchPlateOverlay();
+      if (!box.isConnected || !anchorInput.isConnected) {
+        closeOverlay();
+        return;
+      }
+      const plates = overlay?.plates || [];
+      const lanes = overlay?.lanes || [];
+      const allEmpty = lanes.length > 0 && lanes.every((lane) => lane.status === 'empty');
+      const emptyMessage = !overlay ? 'ارتباط با سامانه برقرار نیست' : allEmpty
+        ? 'در حال حاضر خودرویی مقابل دوربین‌ها نیست'
+        : 'در حال حاضر پلاک قابل‌انتخابی وجود ندارد';
+      renderList(plates, emptyMessage);
+      liveLanes = lanes;
+      if (rereadNotice?.status && rereadNotice.status !== 'busy') {
+        const lane = lanes.find((item) => item.line_number === rereadNotice.line);
+        if (!lane || lane.status !== rereadNotice.status ||
+            (rereadNotice.reason && lane.reason !== rereadNotice.reason)) {
+          rereadNotice = undefined;
+        }
+      }
+      laneDetails.hidden = lanes.length === 0;
+      showLaneStatuses();
+      if (document.visibilityState === 'visible' && box.getClientRects().length) {
+        onShown(plates);
+      }
+      refreshTimer = setTimeout(refresh, 1000);
     }
     refresh();
 
-    function closeOnOutsideClick(e) {
-      if (!box.contains(e.target) && e.target !== anchorInput) {
-        stopRefresh();
-        box.remove();
-        document.removeEventListener('click', closeOnOutsideClick, true);
-      }
+    function closeOverlay() {
+      stopRefresh();
+      box.remove();
+      document.removeEventListener('click', closeOnOutsideClick, true);
     }
-    setTimeout(() => document.addEventListener('click', closeOnOutsideClick, true), 0);
+
+    function closeOnOutsideClick(e) {
+      if (!box.contains(e.target) && e.target !== anchorInput) closeOverlay();
+    }
+    setTimeout(() => {
+      if (box.isConnected) document.addEventListener('click', closeOnOutsideClick, true);
+    }, 0);
   }
 
   // Polls the dropdown a few times (Telerik's AJAX search isn't instant)
@@ -293,10 +462,14 @@
     newButton.click();
   }
 
-  function initPermitPage(config) {
-    const input = document.getElementById(config.vehicleInputId);
-    if (!input) return; // this frame isn't showing the field right now - nothing to do
+  function plateDigits(value) {
+    return (value || '')
+      .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+      .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+      .replace(/[^0-9]/g, '');
+  }
 
+  function initPermitPage(config) {
     // typeIntoField() calls input.focus() itself (needed to make the
     // simulated keystrokes land on the field), which would otherwise
     // re-trigger this very focus listener and pop our overlay back up
@@ -308,8 +481,12 @@
     // from our overlay (if any) - sent along at Save so the backend can
     // link the permit log to its crop images and mark it used.
     let lastPickedDetectionId = null;
+    const shownByNumber = new Map();
+    let overlayAnchor;
 
-    function openOverlay() {
+    function openOverlay(input) {
+      if (overlayAnchor === input && document.getElementById('ri-lpr-overlay')) return;
+      overlayAnchor = input;
       buildOverlay(input, (plate) => {
         suppressOverlayOnFocus = true;
         lastPickedDetectionId = plate.id;
@@ -334,13 +511,26 @@
             }
           });
         });
+      }, (plates) => {
+        for (const plate of plates) {
+          const number = plateDigits(plate.short_format);
+          if (number.length === 7) shownByNumber.set(number, plate.id);
+        }
       });
     }
 
-    input.addEventListener('focus', () => {
-      if (suppressOverlayOnFocus) return;
-      openOverlay();
-    });
+    // Rahkaran can replace this input during a partial form update. Listen
+    // on the document so the replacement input still opens the overlay.
+    document.addEventListener('focusin', (event) => {
+      if (event.target?.id !== config.vehicleInputId || suppressOverlayOnFocus) return;
+      openOverlay(event.target);
+    }, true);
+
+    document.addEventListener('click', (event) => {
+      if (event.isTrusted && event.target?.id === config.vehicleInputId) {
+        openOverlay(event.target);
+      }
+    }, true);
 
     // If the field already had a value (e.g. a vehicle the operator
     // picked earlier) and they clear it with backspace/delete while
@@ -349,17 +539,19 @@
     // moment the field goes back to empty; but once they start typing
     // a character themselves, leave them alone and let Rahkaran's own
     // search run undisturbed.
-    input.addEventListener('input', () => {
-      if (suppressOverlayOnFocus) return;
+    document.addEventListener('input', (event) => {
+      const input = event.target;
+      if (input?.id !== config.vehicleInputId || suppressOverlayOnFocus) return;
       if (input.value === '') {
-        openOverlay();
+        openOverlay(input);
       } else {
         const existing = document.getElementById('ri-lpr-overlay');
         if (existing) existing.remove();
       }
-    });
+    }, true);
 
     function captureAndLog() {
+      if (!document.getElementById(config.vehicleInputId)) return;
       const data = {};
       for (const [key, id] of Object.entries(config.captureFieldIds)) {
         const el = document.getElementById(id);
@@ -367,6 +559,7 @@
       }
       logPermitToBackend({
         detected_plate_id: lastPickedDetectionId,
+        shown_plate_detection_id: shownByNumber.get(plateDigits(data.plate)) ?? null,
         page_type: config.pageType,
         page_url: window.location.href,
         plate: data.plate,
@@ -378,6 +571,7 @@
         vehicle: data.vehicle,
       });
       lastPickedDetectionId = null; // consumed - a fresh pick is needed for the next permit
+      shownByNumber.clear();
     }
 
     document.addEventListener('keydown', (e) => {

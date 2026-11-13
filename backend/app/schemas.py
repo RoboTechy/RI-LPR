@@ -15,6 +15,7 @@ class ActivePlateOut(BaseModel):
 
 class PermitLogIn(BaseModel):
     detected_plate_id: Optional[int] = None
+    shown_plate_detection_id: Optional[int] = None
     page_type: str  # "shipping" | "unloading"
     page_url: Optional[str] = None
     plate: Optional[str] = None

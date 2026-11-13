@@ -31,6 +31,7 @@ import sys
 import tempfile
 import threading
 import time
+from concurrent.futures import Future, TimeoutError
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -39,6 +40,7 @@ import uvicorn
 
 from pipeline_utils import (  # noqa: E402
     CHAR_MODEL_PATH,
+    LANE_REGIONS,
     PLATE_MODEL_PATH,
     REPO_ROOT,
     format_plate_short,
@@ -60,6 +62,43 @@ from app.database import Base, SessionLocal, engine  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(threadName)s] %(message)s")
 log = logging.getLogger(__name__)
+PLATE_CORRECTION_READS = 3
+REREAD_TIMEOUT_SECONDS = 9
+LANE_EMPTY_FRAMES = 3
+LANE_STATE_TTL_SECONDS = 6
+reread_lock = threading.Lock()
+reread_requests = {}
+lane_states = {}
+
+
+def set_lane_status(camera_id, status, detection_id=None):
+    with reread_lock:
+        lane_states[camera_id] = (time.monotonic(), status, detection_id)
+
+
+def lane_status_snapshot():
+    now = time.monotonic()
+    with reread_lock:
+        return {
+            camera_id: {"status": status, "detection_id": detection_id}
+            for camera_id, (seen, status, detection_id) in lane_states.items()
+            if now - seen <= LANE_STATE_TTL_SECONDS
+        }
+
+
+def request_plate_reread(camera_id):
+    request = Future()
+    with reread_lock:
+        if camera_id in reread_requests:
+            return {"status": "busy"}
+        reread_requests[camera_id] = request
+    try:
+        return request.result(timeout=REREAD_TIMEOUT_SECONDS)
+    except TimeoutError:
+        return {"status": "no_read"}
+    finally:
+        with reread_lock:
+            del reread_requests[camera_id]
 
 
 def box_iou(box1, box2):
@@ -130,6 +169,69 @@ def touch_detection(detection_id):
         db.close()
 
 
+def publish_reread(camera_id, chars, plate_text, result):
+    with SessionLocal() as db:
+        latest = (
+            db.query(models.DetectedPlate)
+            .filter_by(camera_id=camera_id)
+            .order_by(models.DetectedPlate.id.desc())
+            .first()
+        )
+        latest_id = latest.id if latest is not None and latest.plate_text == plate_text else None
+    if latest_id is not None:
+        touch_detection(latest_id)
+        return latest_id
+    return store_detection(camera_id, chars, plate_text, result)
+
+
+class LatestFrameReader:
+    """Drain the RTSP stream continuously and retrieve a frame on demand."""
+
+    def __init__(self, capture):
+        self._capture = capture
+        self._ready = threading.Condition()
+        self._stop = threading.Event()
+        self._requested = False
+        self._finished = False
+        self._frame = None
+        self._thread = threading.Thread(target=self._drain, daemon=True)
+        self._thread.start()
+
+    def read(self):
+        with self._ready:
+            self._requested = True
+            self._ready.wait_for(lambda: self._finished or not self._requested)
+            frame, self._frame = self._frame, None
+            return frame
+
+    def close(self):
+        self._stop.set()
+        self._thread.join()
+
+    def _drain(self):
+        try:
+            while not self._stop.is_set() and self._capture.grab():
+                with self._ready:
+                    if not self._requested:
+                        continue
+
+                ok, frame = self._capture.retrieve()
+                if not ok:
+                    break
+
+                with self._ready:
+                    self._frame = frame
+                    self._requested = False
+                    self._ready.notify()
+        finally:
+            try:
+                self._capture.release()
+            finally:
+                with self._ready:
+                    self._finished = True
+                    self._ready.notify_all()
+
+
 def camera_loop(camera_id: int):
     # Position of the vehicle in the last SUCCESSFUL read on this camera,
     # and when that was - used to recognize "still the same truck" by
@@ -138,6 +240,7 @@ def camera_loop(camera_id: int):
     last_vehicle_box = None
     last_seen_at = 0.0
     last_detection_id = None
+    last_plate_text = None
 
     while True:
         db = SessionLocal()
@@ -148,10 +251,19 @@ def camera_loop(camera_id: int):
                 return
             rtsp_url = camera.rtsp_url
             line_number = camera.line_number
+            lane_region = LANE_REGIONS.get(line_number)
         finally:
             db.close()
 
-        cap = cv2.VideoCapture(rtsp_url)
+        cap = cv2.VideoCapture(
+            rtsp_url,
+            cv2.CAP_FFMPEG,
+            [
+                cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000,
+                cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000,
+                cv2.CAP_PROP_N_THREADS, 2,
+            ],
+        )
         if not cap.isOpened():
             log.warning("could not open RTSP stream for line %s - retrying in 10s", line_number)
             cap.release()
@@ -159,21 +271,40 @@ def camera_loop(camera_id: int):
             continue
 
         log.info("connected to line %s", line_number)
+        reader = LatestFrameReader(cap)
+        candidate_plate = None
+        candidate_reads = 0
+        reread = None
+        reread_text = None
+        reread_count = 0
+        empty_count = 0
+        absent_frames = 0
+        display_id = None
+        lane_status = "unavailable"
         try:
             while True:
-                ok, frame = cap.read()
-                if not ok:
+                with reread_lock:
+                    pending = reread_requests.get(camera_id)
+                if pending is not reread:
+                    reread = pending
+                    reread_text = None
+                    reread_count = 0
+                    empty_count = 0
+                frame = reader.read()
+                if frame is None:
                     log.warning("lost connection to line %s - reconnecting", line_number)
                     break
 
                 tmp_path = None
+                no_vehicle = False
                 vehicle_still_present = False  # a vehicle was found this frame, even if its plate wasn't readable
                 try:
                     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
                         tmp_path = tmp.name
                     cv2.imwrite(tmp_path, frame)
                     result = read_plate(
-                        tmp_path, char_model_path=CHAR_MODEL_PATH, plate_model_path=PLATE_MODEL_PATH
+                        tmp_path, char_model_path=CHAR_MODEL_PATH, plate_model_path=PLATE_MODEL_PATH,
+                        lane_region=lane_region,
                     )
                     # detect_and_crop_plate() only raises before this point
                     # (see below) - reaching here means a vehicle (and a
@@ -192,6 +323,7 @@ def camera_loop(camera_id: int):
                     # person simply walking past, re-logging the same
                     # still-parked truck as if it were a new one.
                     vehicle_still_present = "No license plate detected" in str(exc)
+                    no_vehicle = "No cars or trucks detected" in str(exc)
                 except Exception:
                     log.exception("read_plate() failed on a frame from line %s", line_number)
                     result = None
@@ -216,6 +348,10 @@ def camera_loop(camera_id: int):
                     last_detection_id = None
                     relay_client.set_light_red_if_auto(line_number)
 
+                if not result or not result["success"]:
+                    candidate_plate = None
+                    candidate_reads = 0
+
                 if vehicle_still_present:
                     vehicle_box = result["vehicle_box"] if result else last_vehicle_box
                     same_truck = (
@@ -224,20 +360,37 @@ def camera_loop(camera_id: int):
                         and box_iou(vehicle_box, last_vehicle_box) >= WORKER_IOU_SAME_TRUCK_THRESHOLD
                     )
                     if not same_truck:
+                        display_id = None
                         # tracking a new candidate position - nothing
                         # logged for it yet, so there's nothing to touch
                         # until a successful read confirms it (invariant:
                         # last_detection_id is only ever set for a
                         # detection whose position matches last_vehicle_box).
                         last_detection_id = None
+                        candidate_plate = None
+                        candidate_reads = 0
 
                     if result and result["success"]:
                         chars = [c for c, _conf in result["characters"]]
                         plate_text = "".join(chars)
-                        if last_detection_id is not None:
+                        if last_detection_id is None:
+                            last_detection_id = store_detection(camera_id, chars, plate_text, result)
+                            last_plate_text = plate_text
+                        elif plate_text == last_plate_text:
+                            candidate_plate = None
+                            candidate_reads = 0
                             touch_detection(last_detection_id)
                         else:
-                            last_detection_id = store_detection(camera_id, chars, plate_text, result)
+                            # A single different OCR result can be noise. Once
+                            # it repeats, publish it as the latest detection
+                            # without rewriting a row used in a permit.
+                            candidate_reads = candidate_reads + 1 if plate_text == candidate_plate else 1
+                            candidate_plate = plate_text
+                            if candidate_reads >= PLATE_CORRECTION_READS:
+                                last_detection_id = store_detection(camera_id, chars, plate_text, result)
+                                last_plate_text = plate_text
+                                candidate_plate = None
+                                candidate_reads = 0
                     elif last_detection_id is not None:
                         # vehicle confirmed still in the same spot, but no
                         # trustworthy plate text this frame (occluded,
@@ -249,9 +402,44 @@ def camera_loop(camera_id: int):
                         last_vehicle_box = vehicle_box
                     last_seen_at = now
 
+                if reread is not None and not reread.done():
+                    empty_count = empty_count + 1 if no_vehicle else 0
+                    if empty_count >= LANE_EMPTY_FRAMES:
+                        reread.set_result({"status": "empty"})
+                    elif result and result["success"]:
+                        reread_count = reread_count + 1 if plate_text == reread_text else 1
+                        reread_text = plate_text
+                        if reread_count >= PLATE_CORRECTION_READS:
+                            with reread_lock:
+                                if reread_requests.get(camera_id) is reread:
+                                    try:
+                                        last_detection_id = publish_reread(camera_id, chars, plate_text, result)
+                                    except Exception:
+                                        log.exception("could not publish reread for line %s", line_number)
+                                        reread.set_result({"status": "unavailable"})
+                                    else:
+                                        last_plate_text = plate_text
+                                        reread.set_result({"status": "read", "detection_id": last_detection_id})
+                    else:
+                        reread_text = None
+                        reread_count = 0
+
+                absent_frames = absent_frames + 1 if no_vehicle else 0
+                if vehicle_still_present:
+                    if result and result["success"] and plate_text == last_plate_text:
+                        display_id = last_detection_id
+                    lane_status = "detected" if display_id is not None else "unreadable"
+                elif absent_frames >= LANE_EMPTY_FRAMES:
+                    display_id = None
+                    lane_status = "empty"
+                elif not no_vehicle:
+                    lane_status = "unavailable"
+
+                set_lane_status(camera_id, lane_status, display_id)
                 time.sleep(WORKER_POLL_INTERVAL_SECONDS)
         finally:
-            cap.release()
+            set_lane_status(camera_id, "unavailable")
+            reader.close()
 
         time.sleep(5)  # brief pause before reconnecting
 
@@ -276,6 +464,8 @@ def main():
     # daemon threads for as long as this process is alive.
     from test_server import app  # noqa: E402 - imported here so its own sys.path setup doesn't race camera_loop's
 
+    app.state.request_plate_reread = request_plate_reread
+    app.state.lane_status_snapshot = lane_status_snapshot
     log.info("starting internal test-connection API on :9000")
     uvicorn.run(app, host="0.0.0.0", port=9000, log_level="warning")
 

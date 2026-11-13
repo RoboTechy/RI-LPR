@@ -13,8 +13,9 @@
   <table>
     <thead>
       <tr>
-        <th>تاریخ</th>
+        <th>تاریخ و ساعت (تهران)</th>
         <th>پلاک ثبت‌شده (اوپراتور)</th>
+        <th>منبع پلاک</th>
         <th>پلاک تشخیص‌داده‌شده (سیستم)</th>
         <th>نوع مجوز</th>
         <th>حمل‌کننده</th>
@@ -28,12 +29,36 @@
       </tr>
     </thead>
     <tbody>
+      {% set plate_sources = {
+        "selected": "انتخاب از فهرست",
+        "selected_edited": "انتخاب از فهرست و اصلاح دستی",
+        "manual_shown": "ثبت دستی با وجود نمایش پلاک",
+        "manual_detected": "ثبت دستی با تشخیص فعال، بدون ثبت نمایش",
+        "manual_no_detection": "ثبت دستی بدون تشخیص فعال",
+        "manual_legacy": "ثبت دستی؛ وضعیت نمایش نامشخص",
+        "selected_legacy": "انتخاب از فهرست؛ تطبیق نامشخص"
+      } %}
       {% for log in logs %}
       {% set detected_plate_text = log.detected_plate.short_format if log.detected_plate else none %}
-      {% set mismatch = detected_plate_text and log.plate and detected_plate_text != log.plate %}
+      {% set source = log.plate_source %}
+      {% if not source %}
+        {% set entered = plate_digits(log.plate) %}
+        {% if log.detected_plate_id is not none %}
+          {% set detected = plate_digits(detected_plate_text) %}
+          {% if entered|length == 7 and detected|length == 7 %}
+            {% set source = "selected" if entered == detected else "selected_edited" %}
+          {% else %}
+            {% set source = "selected_legacy" %}
+          {% endif %}
+        {% elif entered|length == 7 %}
+          {% set source = "manual_legacy" %}
+        {% endif %}
+      {% endif %}
+      {% set mismatch = source == "selected_edited" %}
       <tr>
-        <td>{{ jalali(log.created_at) }}</td>
+        <td dir="ltr">{{ jalali(log.created_at, "Asia/Tehran") }}</td>
         <td dir="ltr"><strong>{{ log.plate or "-" }}</strong></td>
+        <td>{{ plate_sources.get(source, "نامشخص") }}</td>
         <td dir="ltr">
           {% if detected_plate_text %}
             <span class="{{ 'pill danger' if mismatch else '' }}">{{ detected_plate_text }}</span>

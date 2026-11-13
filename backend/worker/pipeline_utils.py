@@ -20,6 +20,25 @@ PLATE_MODEL_PATH = str(REPO_ROOT / "models" / "ir_lpr_plate_detector.onnx")
 CHAR_MODEL_PATH = str(REPO_ROOT / "models" / "ir_lpr_char_detector.onnx")
 
 
+# Frame coordinates are normalized so the region works at either stream size.
+# Line 2 follows the camera-side base of the separator and includes the full
+# approach and stopping area visible in the 2026-11-10 vehicle samples.
+LANE_REGIONS = {
+    2: (
+        (0, 0.3),
+        (0.14, 0.324),
+        (0.28, 0.373),
+        (0.46, 0.427),
+        (0.63, 0.5),
+        (0.78, 0.531),
+        (0.9, 0.576),
+        (1, 0.617),
+        (1, 1),
+        (0, 1),
+    ),
+}
+
+
 def format_plate_short(chars):
     """Mirrors extension/content.js's formatPlateShort() - must stay in
     sync with it: strip the letter (index 2), write the remaining digits
