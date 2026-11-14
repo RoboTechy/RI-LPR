@@ -100,6 +100,56 @@ picked and saved a permit against - stronger correctness signal than
 OCR confidence alone). Only covers detections logged after the
 `plate_box` column was added (see above) - older ones are skipped.
 
+## Backups
+
+The database holds every detection and every saved permit - nothing else
+has a copy of it. Set up the nightly backup **right after first deploy**,
+not as an afterthought:
+
+```bash
+cd ri-lpr/backend
+./scripts/backup_db.sh   # run it once by hand first - this also creates
+                          # backups/, which the cron line below assumes
+                          # already exists (cron can't create a directory
+                          # just to redirect its log into)
+crontab -e
+# add this line (runs at 02:00 server time every night):
+0 2 * * * cd /path/to/ri-lpr/backend && ./scripts/backup_db.sh >> backups/backup.log 2>&1
+```
+
+(Replace `/path/to/ri-lpr` with the real path on whatever server this is
+deployed on.)
+
+- Writes a gzip-compressed `pg_dump` to `backend/backups/ri_lpr_<timestamp>.sql.gz`
+  via `docker compose exec db pg_dump` - always the exact same Postgres
+  version as the running `db` container, no separate client install
+  needed.
+- `backend/backups/` is a plain directory on the host, **not** inside the
+  `db_data` Docker volume - a `docker compose down -v` or a volume-level
+  failure can't take the backups down with the live data.
+- Keeps 14 days by default; override with `BACKUP_RETENTION_DAYS=30` (or
+  any value) before the cron command, or just run
+  `BACKUP_RETENTION_DAYS=30 ./scripts/backup_db.sh` by hand.
+- Writes to a `.part` file and only renames it on success, so a backup
+  killed mid-run never leaves a file that looks valid but isn't.
+
+**This alone only protects against database corruption or an accidental
+`DROP`/`docker compose down -v` - not against losing the whole server.**
+If there's another machine, NAS, or even just a USB drive on site, add a
+second cron line that copies `backend/backups/` somewhere else, e.g.:
+
+```bash
+30 2 * * * rsync -a /path/to/ri-lpr/backend/backups/ user@other-host:/backups/ri-lpr/
+```
+
+**Restoring** (destructive - confirms before touching anything):
+
+```bash
+cd ri-lpr/backend
+./scripts/restore_db.sh backups/ri_lpr_2026-11-14_020000.sql.gz
+docker compose restart api worker
+```
+
 ## Traffic light (Raspberry Pi relay)
 
 Saving a permit (linked to a detection) turns that line's physical
