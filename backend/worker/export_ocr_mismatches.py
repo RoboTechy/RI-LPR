@@ -5,7 +5,7 @@ exports reads the pipeline was confident about.
 
 Run on demand inside the running worker container:
 
-    docker compose exec worker python3 worker/export_ocr_mismatches.py
+    docker compose exec worker python3 backend/worker/export_ocr_mismatches.py
 
 Two sources:
 

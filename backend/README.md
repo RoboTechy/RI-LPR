@@ -86,7 +86,7 @@ always-on thing): run it on demand inside the already-running `worker`
 container, which already has DB + media access:
 
 ```bash
-docker compose exec worker python3 worker/export_training_dataset.py --min-confidence 0.75
+docker compose exec worker python3 backend/worker/export_training_dataset.py --min-confidence 0.75
 ```
 
 Writes, per high-confidence detection, the vehicle image + a YOLO-format
@@ -106,7 +106,7 @@ OCR confidence alone). Only covers detections logged after the
 confident about. This is its counterpart - it reports the mistakes:
 
 ```bash
-docker compose exec worker python3 worker/export_ocr_mismatches.py
+docker compose exec worker python3 backend/worker/export_ocr_mismatches.py
 ```
 
 It compares every saved permit's plate (the truth - an operator typed

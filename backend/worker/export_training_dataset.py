@@ -6,7 +6,7 @@ data, then it's gone). Run it on demand inside the already-running
 worker container instead - it already has DB access and the media
 volume mounted, so nothing extra needs to be built or started:
 
-    docker compose exec worker python3 worker/export_training_dataset.py
+    docker compose exec worker python3 backend/worker/export_training_dataset.py
 
 For every DetectedPlate row whose confidence is at least
 --min-confidence (default 0.75 - matches the extension's own "تشخیص
