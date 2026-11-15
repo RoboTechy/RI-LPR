@@ -23,7 +23,27 @@ CHAR_MODEL_PATH = str(REPO_ROOT / "models" / "ir_lpr_char_detector.onnx")
 # Frame coordinates are normalized so the region works at either stream size.
 # Line 2 follows the camera-side base of the separator and includes the full
 # approach and stopping area visible in the 2026-11-10 vehicle samples.
+#
+# Line 1's camera looks across a row of jersey barriers at an unrelated
+# through-road beyond them (confirmed via a live reference frame - two
+# passing trucks visible on that far road, with line 1's own stopping lot
+# empty in the foreground). The region below follows the top edge of that
+# barrier row, excluding everything above/beyond it. Calibrated from a
+# single empty-lot frame (no line 1 truck present yet to verify against) -
+# generous on purpose (the whole foreground lot, full width) so it should
+# safely include a real truck wherever it actually stops; re-check once a
+# frame with an occupied line 1 is available.
 LANE_REGIONS = {
+    1: (
+        (0, 0.40),
+        (0.2, 0.40),
+        (0.4, 0.415),
+        (0.6, 0.425),
+        (0.8, 0.44),
+        (1, 0.46),
+        (1, 1),
+        (0, 1),
+    ),
     2: (
         (0, 0.3),
         (0.14, 0.324),
