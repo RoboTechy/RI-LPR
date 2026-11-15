@@ -56,6 +56,65 @@ LANE_REGIONS = {
         (1, 1),
         (0, 1),
     ),
+    # Lines 3, 4, 5, 6 have the same barrier-row layout as 1/2 - confirmed
+    # via live reference frames. Lines 5 and 6 in particular showed a real,
+    # unrelated truck sitting right at/behind their barrier row at the time
+    # the frame was grabbed (visually confirmed excluded by these regions,
+    # not just by the numbers), which is exactly the failure mode this
+    # exists to prevent. The site convention (confirmed with the user) is
+    # that a line's own truck stops IN FRONT of the barriers, camera side -
+    # same assumption lines 1/2 already use. Each region here carries a
+    # deliberate few-percent safety margin below the barrier top itself
+    # (not traced exactly at it) so a real detection landing a little off
+    # from this manual trace doesn't flip inside/outside unpredictably.
+    3: (
+        (0, 0.37),
+        (0.2, 0.39),
+        (0.4, 0.43),
+        (0.6, 0.46),
+        (0.8, 0.5),
+        (1, 0.54),
+        (1, 1),
+        (0, 1),
+    ),
+    4: (
+        (0, 0.34),
+        (0.2, 0.37),
+        (0.35, 0.41),
+        (0.5, 0.425),
+        (0.7, 0.44),
+        (0.9, 0.46),
+        (1, 0.47),
+        (1, 1),
+        (0, 1),
+    ),
+    5: (
+        (0, 0.36),
+        (0.1, 0.34),
+        (0.2, 0.3),
+        (0.3, 0.24),
+        (0.4, 0.2),
+        (0.5, 0.16),
+        (0.6, 0.14),
+        (1, 0.12),
+        (1, 1),
+        (0, 1),
+    ),
+    6: (
+        (0, 0.35),
+        (0.1, 0.35),
+        (0.2, 0.37),
+        (0.3, 0.38),
+        (0.4, 0.4),
+        (0.5, 0.41),
+        (0.6, 0.42),
+        (0.7, 0.44),
+        (0.8, 0.45),
+        (0.9, 0.46),
+        (1, 0.47),
+        (1, 1),
+        (0, 1),
+    ),
 }
 
 
