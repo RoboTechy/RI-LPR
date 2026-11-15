@@ -52,6 +52,12 @@ WORKER_IOU_SAME_TRUCK_THRESHOLD = float(os.environ.get("WORKER_IOU_SAME_TRUCK_TH
 # instead of matching against that stale position.
 WORKER_PRESENCE_GAP_SECONDS = float(os.environ.get("WORKER_PRESENCE_GAP_SECONDS", "30"))
 
+# A frame with a vehicle in the lane but no trustworthy plate read is
+# kept (image + whatever was detected) as a FailedRead row, at most once
+# per this many seconds per camera - a truck with an unreadable plate
+# fails on every poll while it sits there. 0 turns this off.
+WORKER_FAILED_READ_INTERVAL_SECONDS = float(os.environ.get("WORKER_FAILED_READ_INTERVAL_SECONDS", "30"))
+
 # Where the worker container's internal test API (test_server.py) is
 # reachable from the api container, over the Compose network - backs
 # the admin panel's per-camera "تست ارتباط" button.

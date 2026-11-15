@@ -99,6 +99,12 @@ class DetectedPlate(Base):
     # before this field existed.
     plate_box = Column(JSON, nullable=True)
 
+    # One [xmin, ymin, xmax, ymax] per character of plate_chars, same
+    # order, within plate_image_path. With an operator's correction (see
+    # worker/export_ocr_mismatches.py) this is a complete training
+    # example for the character detector. Null for older detections.
+    char_boxes = Column(JSON, nullable=True)
+
     detected_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
 
     consumed = Column(Boolean, default=False, nullable=False)
@@ -134,6 +140,39 @@ class PermitLog(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
 
     detected_plate = relationship("DetectedPlate", back_populates="permit_logs")
+
+
+class FailedRead(Base):
+    """A frame where a vehicle was in the lane but no trustworthy plate
+    came out of it. Successful reads become DetectedPlate rows; without
+    this table the failures left no trace at all, so there was no way
+    to see what the pipeline gets wrong, only what it gets right.
+
+    stage "plate": a vehicle was found but no plate on it - only the
+    whole frame is kept (frame_image_path).
+    stage "chars": a plate was found but its characters failed
+    read_plate()'s format check - the crops and every detected
+    character (with confidence and box) are kept.
+
+    Throttled per camera (WORKER_FAILED_READ_INTERVAL_SECONDS), since a
+    truck with an unreadable plate fails on every poll while it sits
+    there."""
+
+    __tablename__ = "failed_reads"
+
+    id = Column(Integer, primary_key=True)
+    camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=False)
+    stage = Column(String(20), nullable=False)
+    reason = Column(Text, nullable=True)
+    # [{"char": "3", "confidence": 0.81, "box": [x1, y1, x2, y2]}, ...]
+    characters = Column(JSON, nullable=True)
+    plate_image_path = Column(String(255), nullable=True)
+    vehicle_image_path = Column(String(255), nullable=True)
+    frame_image_path = Column(String(255), nullable=True)
+    plate_box = Column(JSON, nullable=True)  # within vehicle_image_path
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+
+    camera = relationship("Camera")
 
 
 class AppSetting(Base):

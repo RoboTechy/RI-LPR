@@ -100,6 +100,37 @@ picked and saved a permit against - stronger correctness signal than
 OCR confidence alone). Only covers detections logged after the
 `plate_box` column was added (see above) - older ones are skipped.
 
+## Finding what the plate reader gets wrong
+
+`export_training_dataset.py` above only exports reads the pipeline was
+confident about. This is its counterpart - it reports the mistakes:
+
+```bash
+docker compose exec worker python3 worker/export_ocr_mismatches.py
+```
+
+It compares every saved permit's plate (the truth - an operator typed
+or confirmed it) with what the camera read, and sorts each permit into
+one category: read correctly, read wrong and corrected by the operator,
+typed by hand although a near-identical detection existed, or never
+detected at all. It also lists the worker's **failed reads** - frames
+where a truck was in the lane but no plate was found, or a plate was
+found but its characters were rejected. The worker keeps one of those
+per camera every `WORKER_FAILED_READ_INTERVAL_SECONDS` (default 30,
+`0` to turn it off) in the `failed_reads` table, images under
+`media/failed_reads/`.
+
+Output goes to `media/ocr_review/`: `summary.json` (counts, plate
+accuracy, per line), `confusion.csv` (which digit is mistaken for
+which), `mismatches.jsonl` (each wrong read with its corrected
+characters), `confirmed.jsonl` (verified-correct reads), and the images
+behind every mismatch and failed read for review. See the script's
+`--help` for options.
+
+The numbers only become meaningful after the system has run for a
+while with this version: failed reads and per-character boxes are only
+recorded from now on.
+
 ## Backups
 
 The database holds every detection and every saved permit - nothing else

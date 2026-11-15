@@ -9,7 +9,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .config import MEDIA_ROOT, SESSION_SECRET_KEY
 
 APP_DIR = Path(__file__).resolve().parent
-from .database import Base, SessionLocal, engine
+from .database import Base, SessionLocal, apply_column_migrations, engine
 from .routers import admin, extension_api
 from .routers.admin import ensure_default_admin
 
@@ -41,6 +41,8 @@ def on_startup():
                 ADD COLUMN IF NOT EXISTS shown_plate_detection_id INTEGER,
                 ADD COLUMN IF NOT EXISTS plate_source VARCHAR(32)
             """))
+
+    apply_column_migrations()
 
     db = SessionLocal()
     try:

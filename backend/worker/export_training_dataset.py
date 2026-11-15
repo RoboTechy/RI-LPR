@@ -27,12 +27,11 @@ writes into --out (default media/training_export/):
                      used it (consumed) - the strongest correctness
                      signal available, see --only-consumed.
 
-This does NOT include per-character bounding boxes (only the plate's
-own box) - the character detector's per-box coordinates aren't
-persisted anywhere yet, only the recognized text. Fine-tuning the plate
-detector is fully covered; fine-tuning the character detector would
-still need those images re-annotated (semi-)manually, or a follow-up
-change to persist per-character boxes too.
+This does NOT export per-character bounding boxes, only the plate's
+own box. Detections logged since char_boxes was added do store them -
+worker/export_ocr_mismatches.py writes them out together with the
+operator-verified text, which is what fine-tuning the character
+detector needs.
 """
 import argparse
 import json

@@ -54,11 +54,12 @@ from license_plate_extractor import read_plate  # noqa: E402
 
 from app import models, relay_client  # noqa: E402
 from app.config import (  # noqa: E402
+    WORKER_FAILED_READ_INTERVAL_SECONDS,
     WORKER_IOU_SAME_TRUCK_THRESHOLD,
     WORKER_POLL_INTERVAL_SECONDS,
     WORKER_PRESENCE_GAP_SECONDS,
 )
-from app.database import Base, SessionLocal, engine  # noqa: E402
+from app.database import Base, SessionLocal, apply_column_migrations, engine  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(threadName)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -143,6 +144,7 @@ def store_detection(camera_id, chars, plate_text, result):
             plate_image_path=plate_image_path,
             vehicle_image_path=vehicle_image_path,
             plate_box=plate_box_local,
+            char_boxes=result.get("character_boxes"),
             detected_at=datetime.now(timezone.utc),
         )
         db.add(detection)
@@ -152,6 +154,30 @@ def store_detection(camera_id, chars, plate_text, result):
         return detection.id
     finally:
         db.close()
+
+
+def store_failed_read(camera_id, stage, reason, result=None, frame=None):
+    """Keeps a frame the pipeline could not read (see models.FailedRead).
+    result: read_plate()'s dict for a "chars" failure. frame: the BGR
+    frame for a "plate" failure, where read_plate() raised before
+    producing any crop."""
+    row = models.FailedRead(camera_id=camera_id, stage=stage, reason=reason)
+    if result is not None:
+        row.plate_image_path = save_image(result["plate_crop"], "failed_reads")
+        row.vehicle_image_path = save_image(result["vehicle_crop"], "failed_reads")
+        vx1, vy1, _vx2, _vy2 = result["vehicle_box"]
+        px1, py1, px2, py2 = result["plate_box"]
+        row.plate_box = [px1 - vx1, py1 - vy1, px2 - vx1, py2 - vy1]
+        boxes = result.get("character_boxes") or [None] * len(result["characters"])
+        row.characters = [
+            {"char": char, "confidence": round(conf, 3), "box": box}
+            for (char, conf), box in zip(result["characters"], boxes)
+        ]
+    if frame is not None:
+        row.frame_image_path = save_image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), "failed_reads")
+    with SessionLocal() as db:
+        db.add(row)
+        db.commit()
 
 
 def touch_detection(detection_id):
@@ -241,6 +267,7 @@ def camera_loop(camera_id: int):
     last_seen_at = 0.0
     last_detection_id = None
     last_plate_text = None
+    last_failure_logged_at = 0.0
 
     while True:
         db = SessionLocal()
@@ -332,6 +359,25 @@ def camera_loop(camera_id: int):
                         Path(tmp_path).unlink(missing_ok=True)
 
                 now = time.monotonic()
+
+                failed_stage = None
+                if result is not None and not result["success"]:
+                    failed_stage = "chars"
+                elif result is None and vehicle_still_present:
+                    failed_stage = "plate"
+                if (
+                    failed_stage
+                    and WORKER_FAILED_READ_INTERVAL_SECONDS > 0
+                    and now - last_failure_logged_at >= WORKER_FAILED_READ_INTERVAL_SECONDS
+                ):
+                    last_failure_logged_at = now
+                    try:
+                        if failed_stage == "chars":
+                            store_failed_read(camera_id, "chars", result["reason"], result=result)
+                        else:
+                            store_failed_read(camera_id, "plate", "no plate found on the vehicle", frame=frame)
+                    except Exception:
+                        log.exception("could not store a failed read for line %s", line_number)
 
                 # Departure check - runs on every poll regardless of what
                 # this particular frame found, so a truck that drives off
@@ -446,6 +492,7 @@ def camera_loop(camera_id: int):
 
 def main():
     Base.metadata.create_all(bind=engine)  # idempotent - in case this starts before the API container
+    apply_column_migrations()
 
     db = SessionLocal()
     try:

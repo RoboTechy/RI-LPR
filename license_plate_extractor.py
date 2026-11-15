@@ -446,6 +446,8 @@ def read_plate(image_name, char_model_path=DEFAULT_CHAR_MODEL_PATH,
         characters: list of (character, confidence) tuples, left to right,
                     whatever was detected - returned even on failure, for
                     debugging/audit
+        character_boxes: one [xmin, ymin, xmax, ymax] per entry of
+                         `characters`, same order, within plate_crop
         reason: str or None - why success is False
         plate_crop: the cropped plate image (RGB numpy array)
         vehicle_crop: the cropped vehicle image (RGB numpy array)
@@ -467,16 +469,23 @@ def read_plate(image_name, char_model_path=DEFAULT_CHAR_MODEL_PATH,
         x_center = box.xywh[0][0].item()
         class_name = results.names[int(box.cls[0])]
         confidence = box.conf[0].item()
-        detections.append((x_center, class_name, confidence))
+        xyxy = [round(float(v), 1) for v in box.xyxy[0].tolist()]
+        detections.append((x_center, class_name, confidence, xyxy))
     detections.sort(key=lambda d: d[0])  # left to right
 
-    characters = [(name, confidence) for _, name, confidence in detections]
+    characters = [(name, confidence) for _, name, confidence, _box in detections]
+    # Same order as `characters`, each (xmin, ymin, xmax, ymax) within
+    # plate_crop - persisted alongside every read (good or bad) so a
+    # read can later become a character-detector training example once
+    # its true text is known (see worker/export_ocr_mismatches.py).
+    character_boxes = [xyxy for _, _name, _confidence, xyxy in detections]
 
     def failure(reason):
         return {
             "success": False,
             "plate_text": None,
             "characters": characters,
+            "character_boxes": character_boxes,
             "reason": reason,
             "plate_crop": plate_crop,
             "vehicle_crop": vehicle_crop,
@@ -499,6 +508,7 @@ def read_plate(image_name, char_model_path=DEFAULT_CHAR_MODEL_PATH,
         "success": True,
         "plate_text": " ".join(char for char, _confidence in characters),
         "characters": characters,
+        "character_boxes": character_boxes,
         "reason": None,
         "plate_crop": plate_crop,
         "vehicle_crop": vehicle_crop,
