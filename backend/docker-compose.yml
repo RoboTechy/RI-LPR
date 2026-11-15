@@ -43,6 +43,14 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://ri_lpr:ri_lpr@db:5432/ri_lpr
       MEDIA_ROOT: /app/backend/media
+      # RTSP video over TCP instead of FFmpeg's default of UDP first. All
+      # six cameras (H.265) were dropping and reconnecting at the same
+      # instant every minute or two, with "hevc: Error constructing the
+      # frame RPS" just before - lost UDP packets leave the decoder
+      # without its reference frames until the next keyframe, long enough
+      # to trip the read timeout. TCP can't lose packets that way. Applies
+      # to every capture in the worker (polling loops, live stream, test).
+      OPENCV_FFMPEG_CAPTURE_OPTIONS: "rtsp_transport;tcp"
     expose:
       - "9000"  # internal only - test_server.py, never published to the host
     volumes:

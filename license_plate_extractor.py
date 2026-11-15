@@ -180,7 +180,7 @@ def _detect_plate_box(cropped_vehicle_image, plate_model_path, accept_box=None):
         print(f"{plate_model_path} not found, falling back to {FALLBACK_PLATE_MODEL_PATH}")
         plate_model_path = FALLBACK_PLATE_MODEL_PATH
     model = _get_plate_detector(plate_model_path)
-    results = model(cropped_vehicle_image)
+    results = model(cropped_vehicle_image, verbose=False)
     for detection in results[0].boxes:
         box = detection.xyxy[0].cpu().numpy()
         if accept_box is None or accept_box(box):
@@ -218,7 +218,7 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
     """
     # find the biggest car/truck in the image
     yolo_model = _get_vehicle_detector()
-    car_results = yolo_model(image_name)
+    car_results = yolo_model(image_name, verbose=False)
     car_boxes = filter_boxes_by_class(car_results[0].boxes, VEHICLE_CLASS_IDS)
     outside_lane = []
     if lane_region is not None:
