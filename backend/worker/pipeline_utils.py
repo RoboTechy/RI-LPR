@@ -51,15 +51,20 @@ LANE_REGIONS = {
         (1, 1),
         (0, 1),
     ),
+    # Line 2 is traced for where its trucks' PLATES sit, not at the barrier
+    # edge: a truck stopped close to the camera has its plate well above the
+    # barrier line in the image (plate at about x=.43, y=.345 in the
+    # 2026-11-16 test frames), while the plate of the truck on the next lane
+    # behind the barrier is at about x=.78, y=.42 and must stay outside.
     2: (
-        (0, 0.3),
-        (0.14, 0.324),
-        (0.28, 0.373),
-        (0.46, 0.427),
-        (0.63, 0.5),
-        (0.78, 0.531),
-        (0.9, 0.576),
-        (1, 0.617),
+        (0, 0.2),
+        (0.14, 0.22),
+        (0.28, 0.26),
+        (0.46, 0.30),
+        (0.63, 0.40),
+        (0.78, 0.47),
+        (0.9, 0.52),
+        (1, 0.56),
         (1, 1),
         (0, 1),
     ),
