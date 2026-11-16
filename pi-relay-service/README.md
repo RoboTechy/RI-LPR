@@ -1,63 +1,43 @@
 # RI-LPR relay service (Raspberry Pi)
 
-Switches each line's traffic light between red and green via a relay
-board, controlled over HTTP from the backend. Runs directly on a
-Raspberry Pi 4B (8GB) on the plant network, booting **Ubuntu Desktop**
-(not Raspberry Pi OS) - **not** a container, not part of
-`backend/docker-compose.yml`. Keep it that way: GPIO access from
-inside Docker needs extra privileged flags/device mounts for no real
-benefit here, and this one small Python process is simpler to reason
-about running straight on the Pi's own OS.
+Switches each line's traffic light between red and green, controlled over
+HTTP from the backend. Runs directly on a Raspberry Pi (Raspberry Pi OS) on
+the plant network - **not** a container, not part of
+`backend/docker-compose.yml`: GPIO access from inside Docker needs extra
+privileged flags for no real benefit, and one small Python process is
+simpler to run on the Pi's own OS.
 
-Running Ubuntu instead of Raspberry Pi OS doesn't change the GPIO
-story - gpiozero's `lgpio` backend talks to the kernel's standard
-`/dev/gpiochip0` character device, which Ubuntu's Raspberry Pi kernel
-exposes the same way - but it does mean two things called out below
-where they matter: there's no "pi" user/home directory to assume by
-default (every path below needs the real username substituted in),
-and Ubuntu doesn't ship the same `gpio`-group udev rules Raspberry Pi
-OS does, so `ri-lpr-relay.service` runs as root (see that file's own
-comment) rather than guessing at a permission setup this hasn't been
-verified against.
+## How it works
 
-## Wiring (as discussed)
+Each line has one GPIO pin:
 
-Per line, one SPDT relay (one NO contact, one NC contact):
+- pin **HIGH = 1 -> green**
+- pin **LOW = 0 -> red** (the idle state; pins start LOW at boot)
 
-- **NC** (normally closed) → red bulb. De-energized = NC closed = red.
-  This is the safe idle state - what the light shows on boot or if the
-  Pi loses power.
-- **NO** (normally open) → green bulb. Energized = NO closed = green.
-- **COM** → the light's shared/power line.
+Whenever a light is turned green - by a saved permit or by the admin
+panel's green button - it stays green for **`GREEN_SECONDS`** (30 s) and
+then goes back to red by itself. A new green while it is still green
+restarts the time. `POST /light/{line}/red` turns it red at once. The
+`seconds` value the backend sends and the backend's "truck left" call are
+accepted but ignored: `config.py` alone decides, so the time is changed in
+one place only.
 
-Relay coils are 5V, low-level-trigger (pull the relay's IN pin LOW to
-energize it). The Pi's GPIO is 3.3V logic, so each relay channel's IN
-pin goes through a 3.3V→5V level converter before reaching the relay
-board, per your own setup. `config.py`'s `RELAY_ACTIVE_LOW = True`
-matches this; if a given channel ends up inverted in practice, flip it
-to `False` and re-test that one line before trusting the rest.
+## Pins (BCM numbers, edit `LINE_TO_PIN` in `config.py` to change)
 
-## Two ways a light turns green - and two different ways it turns red
+| Line | BCM GPIO | Physical header pin |
+|------|----------|---------------------|
+| 1 | 17 | 11 |
+| 2 | 27 | 13 |
+| 3 | 22 | 15 |
+| 4 | 23 | 16 |
+| 5 | 24 | 18 |
+| 6 | 25 | 22 |
 
-- **"auto"** - the backend sent this when an operator saved a permit
-  for a truck on that line. No timer at all here - stays green until
-  the backend's worker explicitly decides the truck has left (it
-  watches the camera; see `backend/worker/camera_worker.py`) and calls
-  `POST /light/{line}/red-if-auto`.
-- **"manual"** - someone clicked "سبز کردن" in the admin panel.
-  Auto-reverts to red after a fixed number of seconds the backend sends
-  along (admin-editable from the cameras page) - regardless of what any
-  camera sees.
-
-`POST /light/{line}/red` is an unconditional manual override (the
-admin panel's "قرمز کردن" button); `red-if-auto` is a no-op unless the
-light is currently green for the "auto" reason, so the worker's own
-departure detection can never cut a manual test short.
-
-**Before wiring all 6 lines**: wire just line 1, run through the smoke
-test below, and confirm red is really the idle state and green is
-really what you get from `POST /light/1/green` - cheaper to catch a
-wiring or polarity mistake on one line than on six.
+Connect each pin to that line's light driver input and a GND pin (e.g.
+physical 6, 9 or 14) to the driver's ground. GPIO pins give **3.3 V and
+only a few mA** - drive a relay/driver board or transistor, never a lamp
+directly. If your driver switches the other way round (0 = green), set
+`GREEN_IS_HIGH = False` in `config.py`.
 
 ## Setup
 
@@ -66,87 +46,55 @@ wiring or polarity mistake on one line than on six.
 cd pi-relay-service
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env     # then edit .env: set RELAY_API_KEY to a real value
 ```
 
-The venv is **not optional** - `ri-lpr-relay.service` runs the script with
-`.venv/bin/python3` directly, so the packages above must end up inside
-that venv (not installed system-wide) or the systemd service will fail
-with `ModuleNotFoundError` even if your manual test run worked.
+The venv is **not optional** - the systemd service runs
+`.venv/bin/python3`.
 
 Edit `config.py`:
-- `LINE_TO_PIN` - which BCM GPIO pin drives which line's relay. The
-  defaults are just safe, unreserved pins on a Pi 4B - they say nothing
-  about your actual wiring. Set these to match reality.
-- `RELAY_ACTIVE_LOW` - should already be right (see above) unless you
-  find otherwise while testing line 1.
-- `AUTO_REVERT_SECONDS` - how long green stays before reverting to red
-  on its own (default 20s).
+- `GREEN_SECONDS` - how long green stays on (default 30). Can also be set
+  as `RELAY_GREEN_SECONDS` in `.env`.
+- `LINE_TO_PIN` - the pins above.
+- `GREEN_IS_HIGH` - leave `True` for 1 = green.
 
-Set a real API key (shared with the backend - `PI_RELAY_API_KEY` in
-`backend/.env` must match this exactly):
+`RELAY_API_KEY` must equal `PI_RELAY_API_KEY` in the backend's `.env`.
 
-```bash
-cp .env.example .env
-# edit .env: set RELAY_API_KEY to a real value
-```
-
-## Running it
-
-Manually, for the initial wiring test:
+## Test it by hand first
 
 ```bash
 source .venv/bin/activate
-export RELAY_API_KEY=$(grep RELAY_API_KEY .env | cut -d= -f2)
+export $(grep RELAY_API_KEY .env)
 python3 relay_service.py
 ```
 
-From another machine on the same network:
+From another machine (or a second terminal):
 
 ```bash
-curl http://<pi-ip>:8080/health                                       # no auth needed
-curl -X POST -H "X-API-Key: <RELAY_API_KEY>" "http://<pi-ip>:8080/light/1/green?mode=manual&seconds=5"
-curl -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/lights        # {"1": "green", "2": "red", ...}
-# wait 5s, then /lights should show line 1 back to "red" on its own
-
-# "auto" mode (what a saved permit actually triggers) has NO timer -
-# confirm it stays green until you explicitly clear it:
-curl -X POST -H "X-API-Key: <RELAY_API_KEY>" "http://<pi-ip>:8080/light/1/green?mode=auto"
-sleep 10 && curl -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/lights   # line 1 should still be green
-curl -X POST -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/light/1/red-if-auto
+curl http://<pi-ip>:8080/health                                       # no key needed
+curl -X POST -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/light/1/green
+curl -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/lights        # line 1 green
+# measure pin 11 (BCM 17): 3.3 V while green; after 30 s it is 0 V and /lights shows red
+curl -X POST -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/light/1/red   # red at once
 ```
 
-Once that's confirmed, install it as a systemd service - this is what
-makes it both restart itself if it ever crashes (`Restart=on-failure`)
-**and** come back up on its own after a power outage: `systemctl
-enable` makes the unit start on every boot, power-cycle included, with
-no login or desktop session needed (it runs at the `multi-user.target`
-level, independent of whether anyone's logged into Ubuntu Desktop's
-GUI).
+Do line 1 alone before connecting the other five.
 
-First, edit `ri-lpr-relay.service` and replace every `REPLACE_ME_HOME`
-with this folder's real path - run `pwd` right here to get it (there's
-no "pi" user on Ubuntu Desktop to assume by default, unlike Raspberry
-Pi OS):
+## Run it as a service (starts at every boot, restarts if it crashes)
 
 ```bash
-pwd   # should end in .../ri-lpr/pi-relay-service - copy the part before "/ri-lpr"
-sed -i "s#REPLACE_ME_HOME#$(cd ../.. && pwd)#g" ri-lpr-relay.service
-cat ri-lpr-relay.service   # double-check the three paths look right (no "REPLACE_ME_HOME" left, no doubled "ri-lpr")
-```
-
-Then install it:
-
-```bash
+sed -i "s#REPLACE_ME_DIR#$(pwd)#g; s#REPLACE_ME_USER#$(whoami)#g" ri-lpr-relay.service
+cat ri-lpr-relay.service    # check: no REPLACE_ME left
 sudo cp ri-lpr-relay.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now ri-lpr-relay
-sudo systemctl status ri-lpr-relay    # should show "active (running)"
+sudo systemctl status ri-lpr-relay      # "active (running)"
 ```
 
-To actually prove the power-loss case (not just a normal reboot):
-`sudo systemctl status ri-lpr-relay` right after a full power cycle
-(unplug/replug, not `reboot`) - should already show "active (running)"
-by the time you can log back in, with no manual step.
+After changing `GREEN_SECONDS`: `sudo systemctl restart ri-lpr-relay`.
+Logs: `journalctl -u ri-lpr-relay -f`. If it fails with a GPIO permission
+error, the user must be in the `gpio` group: `sudo usermod -aG gpio $USER`
+and reboot.
 
 ## Wiring this into the backend
 
@@ -160,15 +108,14 @@ PI_RELAY_API_KEY=<same value as RELAY_API_KEY above>
 Then `docker compose restart api` (no rebuild needed - these are just
 environment variables). After that:
 
-- Saving a permit in the extension automatically turns that line's
-  light green and keeps it green for exactly as long as the worker's
-  camera still sees that truck - no fixed timer for this path.
-- The admin panel's دوربین‌ها page shows each line's current light
-  color and has manual "سبز کردن"/"قرمز کردن" buttons - available to
-  اوپراتور accounts too, not just مدیر, since this is routine
-  day-to-day use, not service configuration. A manual green always
-  reverts after a fixed, مدیر-editable duration from that same page,
-  regardless of what any camera sees.
+- Saving a permit in the extension turns that line's light green; so
+  does the admin panel's "سبز کردن" button. Either way it stays green for
+  `GREEN_SECONDS` (this folder's `config.py`) and goes back to red by
+  itself. The "green duration" setting on the admin panel's دوربین‌ها
+  page no longer has any effect, and neither does the worker's "truck
+  left" signal - the Pi's own timer decides.
+- "قرمز کردن" turns the light red immediately. The page shows each
+  line's current color; operators may use both buttons.
 
 If the Pi is unreachable, nothing else breaks - saving a permit and the
 admin panel both treat the relay service as best-effort (see

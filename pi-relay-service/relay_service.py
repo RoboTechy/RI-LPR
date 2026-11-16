@@ -1,53 +1,30 @@
 """
-Runs ON the Raspberry Pi itself - a separate physical device on the
-plant network, not a container in the main backend's docker-compose.
-Controls each line's traffic light via a relay board: HTTP in, GPIO out.
+Runs ON the Raspberry Pi itself (Raspberry Pi OS) - a separate physical
+device on the plant network, not a container in the main backend's
+docker-compose. Controls each line's traffic light: HTTP in, GPIO out.
 
-Wiring: each line has one SPDT relay - its NC (normally closed) contact
-wired to the light's RED bulb, its NO (normally open) contact wired to
-GREEN, COM to the light's shared/power line. De-energized (idle) -> NC
-closed -> red. Energized -> NO closed -> green. The relay board is
-low-level-trigger (its IN pin must be pulled LOW to energize) with a 5V
-coil, driven through a 3.3V->5V level converter from the Pi's GPIO -
-see config.py's RELAY_ACTIVE_LOW if your board inverts this.
+Each line has one GPIO pin (config.LINE_TO_PIN):
+    1 (HIGH) = green light        0 (LOW) = red light
+Red is the idle state - the pins start LOW. Every time a light is turned
+green it stays green for config.GREEN_SECONDS (30 s by default, change it
+in config.py) and then goes back to red by itself. Turning it green again
+while it is still green restarts the time.
 
 Setup: see README.md in this folder.
 
-A light is always green for one of two reasons, which behave
-differently on purpose (per the project's own requirement):
-
-  "auto"   - the backend turned it green because an operator saved a
-             permit for a truck on that line. Stays green for exactly
-             as long as that truck is still there - the worker
-             (backend/worker/camera_worker.py) explicitly calls
-             red-if-auto the moment its own camera loop decides the
-             truck has left. No timer here at all for this case.
-  "manual" - someone clicked "سبز کردن" in the admin panel. Reverts to
-             red after a fixed, admin-configurable duration
-             (backend/app/models.py's AppSetting) passed in as
-             ?seconds=, regardless of what any camera sees.
-
 API (every endpoint but /health needs header X-API-Key: <config.API_KEY>):
-    POST /light/{line_number}/green?mode=auto
-                                      - energize the relay, no timer -
-                                        stays green until /red or
-                                        /red-if-auto turns it off
-    POST /light/{line_number}/green?mode=manual&seconds=<N>
-                                      - energize the relay, auto-reverts
-                                        to red after <N> seconds (falls
-                                        back to config.AUTO_REVERT_SECONDS
-                                        if seconds is omitted)
-    POST /light/{line_number}/red    - de-energize immediately,
-                                        unconditionally (manual override)
+    POST /light/{line_number}/green  - pin to 1; back to 0 after
+                                       config.GREEN_SECONDS. Any ?mode= /
+                                       ?seconds= the backend adds is
+                                       accepted but ignored.
+    POST /light/{line_number}/red    - pin to 0 immediately
     POST /light/{line_number}/red-if-auto
-                                      - de-energize only if currently
-                                        green because of mode=auto - a
-                                        no-op otherwise, so it never
-                                        cuts a manual test short
+                                     - does nothing (kept so the backend's
+                                       "truck left" call still works); the
+                                       light follows its own timer
     GET  /light/{line_number}        - {"line_number": n, "color": "red"|"green"}
     GET  /lights                     - {"<line_number>": "red"|"green", ...}
-                                        for every line in LINE_TO_PIN
-    GET  /health                     - no auth; for a quick reachability check
+    GET  /health                     - no auth; quick reachability check
 """
 import threading
 from typing import Optional
@@ -61,49 +38,29 @@ app = FastAPI(title="RI-LPR relay service")
 
 
 class Light:
-    """One line's relay - wraps a single GPIO pin as a red/green state,
-    remembering *why* it's green (see module docstring) and its own
-    pending auto-revert timer, if any."""
+    """One line's GPIO pin as a red/green state with its own revert timer."""
 
     def __init__(self, pin: int):
-        self.device = OutputDevice(pin, active_high=not config.RELAY_ACTIVE_LOW, initial_value=False)
+        # on() = pin HIGH = 1 = green; off() = pin LOW = 0 = red
+        self.device = OutputDevice(pin, active_high=config.GREEN_IS_HIGH, initial_value=False)
         self.color = "red"
-        self.mode: Optional[str] = None  # "auto" | "manual" | None (while red)
         self._revert_timer = None
         self._lock = threading.Lock()
 
-    def set_green(self, mode: str, seconds: Optional[float] = None):
+    def set_green(self):
         with self._lock:
             self._cancel_timer_locked()
             self.device.on()
             self.color = "green"
-            self.mode = mode
-            if mode == "manual":
-                duration = seconds if seconds is not None else config.AUTO_REVERT_SECONDS
-                self._revert_timer = threading.Timer(duration, self._revert_locked_wrapper)
-                self._revert_timer.daemon = True
-                self._revert_timer.start()
-            # mode == "auto": no timer - stays green until /red or
-            # /red-if-auto is called explicitly.
-
-    def _revert_locked_wrapper(self):
-        with self._lock:
-            self._set_red_locked()
+            self._revert_timer = threading.Timer(config.GREEN_SECONDS, self.set_red)
+            self._revert_timer.daemon = True
+            self._revert_timer.start()
 
     def set_red(self):
         with self._lock:
-            self._set_red_locked()
-
-    def set_red_if_auto(self):
-        with self._lock:
-            if self.mode == "auto":
-                self._set_red_locked()
-
-    def _set_red_locked(self):
-        self._cancel_timer_locked()
-        self.device.off()
-        self.color = "red"
-        self.mode = None
+            self._cancel_timer_locked()
+            self.device.off()
+            self.color = "red"
 
     def _cancel_timer_locked(self):
         if self._revert_timer is not None:
@@ -137,14 +94,12 @@ def health():
 @app.post("/light/{line_number}/green")
 def light_green(
     line_number: int,
-    mode: str = "manual",
-    seconds: Optional[float] = None,
+    mode: Optional[str] = None,  # accepted for the backend's sake, ignored
+    seconds: Optional[float] = None,  # ignored - config.GREEN_SECONDS rules
     _auth: None = Depends(check_api_key),
 ):
-    if mode not in ("auto", "manual"):
-        raise HTTPException(status_code=400, detail="mode must be 'auto' or 'manual'")
-    get_light(line_number).set_green(mode, seconds)
-    return {"line_number": line_number, "color": "green", "mode": mode}
+    get_light(line_number).set_green()
+    return {"line_number": line_number, "color": "green", "seconds": config.GREEN_SECONDS}
 
 
 @app.post("/light/{line_number}/red")
@@ -155,9 +110,8 @@ def light_red(line_number: int, _auth: None = Depends(check_api_key)):
 
 @app.post("/light/{line_number}/red-if-auto")
 def light_red_if_auto(line_number: int, _auth: None = Depends(check_api_key)):
-    light = get_light(line_number)
-    light.set_red_if_auto()
-    return {"line_number": line_number, "color": light.color}
+    # Deliberately a no-op: the light stays green for GREEN_SECONDS.
+    return {"line_number": line_number, "color": get_light(line_number).color}
 
 
 @app.get("/light/{line_number}")

@@ -1,9 +1,7 @@
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
 gpiozero==2.0.1
-# gpiozero's GPIO backend - talks to the kernel's standard
-# /dev/gpiochip* character device, which is distro-agnostic (works the
-# same on Ubuntu Desktop as on Raspberry Pi OS), unlike the RPi.GPIO
-# package (relies on a Raspberry Pi OS-specific sysfs/mem interface -
-# not guaranteed to work on Ubuntu, don't substitute it here).
+# gpiozero's GPIO backend on Raspberry Pi OS (Bookworm and later). If
+# `pip install` can't build it, run `sudo apt install python3-lgpio swig
+# liblgpio-dev` first, or create the venv with --system-site-packages.
 lgpio==0.2.2.0
