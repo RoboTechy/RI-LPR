@@ -8,7 +8,8 @@
 
   {% if camera %}
   <div class="hint" style="margin-bottom:8px;">پخش زنده</div>
-  <img src="/admin/cameras/{{ camera.id }}/stream" style="max-width:100%;border-radius:var(--radius);border:1px solid var(--border);display:block;background:#000;">
+  <img id="live-stream" data-src="/admin/cameras/{{ camera.id }}/stream" alt="" style="width:100%;aspect-ratio:16/9;object-fit:contain;border-radius:var(--radius);border:1px solid var(--border);display:block;background:#000;cursor:pointer;">
+  <div id="live-note" class="hint" style="margin-top:6px;min-height:1.4em;"></div>
   {% endif %}
 
   <div class="card-header" style="margin-top:22px;"><h3>نتیجه آخرین تست تشخیص</h3></div>
@@ -38,11 +39,56 @@
 
   <div class="form-actions">
     {% if camera %}
-    <form class="inline" method="post" action="/admin/cameras/{{ camera.id }}/test">
+    <form class="inline" id="test-form" method="post" action="/admin/cameras/{{ camera.id }}/test">
       <button class="btn" type="submit">تست تشخیص پلاک</button>
     </form>
     {% endif %}
     <a class="btn secondary" href="/admin/cameras">بازگشت به لیست دوربین‌ها</a>
   </div>
 </div>
+{% if camera %}
+<script>
+// A live view is one long-lived connection, and a browser allows only
+// about six per server across ALL tabs. With a stream in every open
+// camera tab the sixth page's request - the test button's - waited
+// forever. So only the tab being looked at streams, the test button lets
+// go of it before submitting, and a forgotten tab stops by itself.
+(function () {
+  var img = document.getElementById('live-stream');
+  var note = document.getElementById('live-note');
+  var src = img.getAttribute('data-src');
+  var BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+  var MAX_MS = 5 * 60 * 1000;
+  var running = false;
+  var timer = null;
+
+  function start() {
+    if (running) return;
+    running = true;
+    note.textContent = '';
+    img.src = src + '?t=' + Date.now();
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      stop('پخش زنده بعد از ۵ دقیقه متوقف شد - برای ادامه روی تصویر کلیک کن');
+    }, MAX_MS);
+  }
+
+  function stop(message) {
+    clearTimeout(timer);
+    running = false;
+    img.src = BLANK;
+    note.textContent = message || '';
+  }
+
+  img.addEventListener('click', start);
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stop(''); else start();
+  });
+  window.addEventListener('pagehide', function () { stop(''); });
+  window.addEventListener('pageshow', function (e) { if (e.persisted && !document.hidden) start(); });
+  document.getElementById('test-form').addEventListener('submit', function () { stop(''); });
+  if (!document.hidden) start();
+})();
+</script>
+{% endif %}
 {% endblock %}

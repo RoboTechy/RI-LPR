@@ -266,6 +266,10 @@ def camera_stream(camera_id: int, db: Session = Depends(get_db), admin: models.A
     <img> preview instead of the one-snapshot-per-click test result."""
     camera = db.query(models.Camera).get(camera_id)
     ensure_camera_access(camera, admin)
+    # FastAPI keeps a request's DB session open until the response has
+    # finished - for a stream that is as long as the tab stays open, one
+    # pooled connection per open live view. Nothing below needs the DB.
+    db.close()
 
     def proxy():
         with httpx.stream("GET", f"{WORKER_INTERNAL_URL}/stream-camera/{camera_id}", timeout=None) as resp:

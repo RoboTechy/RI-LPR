@@ -11,6 +11,7 @@ over the Compose network (http://worker:9000) instead of running
 inference itself.
 """
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
@@ -30,6 +31,13 @@ app = FastAPI(title="RI-LPR worker internal test API")
 
 CONNECT_TIMEOUT_SECONDS = 10
 STREAM_JPEG_QUALITY = 60
+# The live view is for looking at, not for reading plates: a preview of
+# this size and rate costs a fraction of re-encoding every 1080p frame.
+STREAM_MAX_WIDTH = 960
+STREAM_MAX_FPS = 8
+# Ends a stream nobody is watching any more (a forgotten tab) - each one
+# is an extra camera connection and an extra decoder.
+STREAM_MAX_SECONDS = 600
 
 
 def _grab_one_frame(rtsp_url):
@@ -158,6 +166,46 @@ def test_camera(camera_id: int):
     }
 
 
+def _mjpeg_chunks(rtsp_url):
+    cap = cv2.VideoCapture(rtsp_url)
+    if not cap.isOpened():
+        cap.release()
+        return
+    try:
+        started = time.monotonic()
+        last_sent = 0.0
+        while time.monotonic() - started < STREAM_MAX_SECONDS:
+            # grab() every frame to keep the connection drained; only
+            # convert/resize/encode the few that are actually shown.
+            if not cap.grab():
+                break
+            now = time.monotonic()
+            if now - last_sent < 1.0 / STREAM_MAX_FPS:
+                continue
+            ok, frame = cap.retrieve()
+            if not ok:
+                continue
+            last_sent = now
+            height, width = frame.shape[:2]
+            if width > STREAM_MAX_WIDTH:
+                frame = cv2.resize(
+                    frame, (STREAM_MAX_WIDTH, round(height * STREAM_MAX_WIDTH / width)),
+                    interpolation=cv2.INTER_AREA,
+                )
+            ok2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, STREAM_JPEG_QUALITY])
+            if not ok2:
+                continue
+            yield (
+                b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                + str(len(buf)).encode()
+                + b"\r\n\r\n"
+                + buf.tobytes()
+                + b"\r\n"
+            )
+    finally:
+        cap.release()
+
+
 @app.get("/stream-camera/{camera_id}")
 def stream_camera(camera_id: int):
     """Raw MJPEG passthrough (no inference - just the live feed, so it
@@ -175,27 +223,4 @@ def stream_camera(camera_id: int):
     finally:
         db.close()
 
-    def generate():
-        cap = cv2.VideoCapture(rtsp_url)
-        if not cap.isOpened():
-            cap.release()
-            return
-        try:
-            while True:
-                ok, frame = cap.read()
-                if not ok:
-                    break
-                ok2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, STREAM_JPEG_QUALITY])
-                if not ok2:
-                    continue
-                yield (
-                    b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
-                    + str(len(buf)).encode()
-                    + b"\r\n\r\n"
-                    + buf.tobytes()
-                    + b"\r\n"
-                )
-        finally:
-            cap.release()
-
-    return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(_mjpeg_chunks(rtsp_url), media_type="multipart/x-mixed-replace; boundary=frame")
