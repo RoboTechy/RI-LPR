@@ -67,9 +67,16 @@ PLATE_CORRECTION_READS = 3
 REREAD_TIMEOUT_SECONDS = 9
 LANE_EMPTY_FRAMES = 3
 LANE_STATE_TTL_SECONDS = 6
+PREVIEW_MAX_FPS = 4
+PREVIEW_ACTIVE_SECONDS = 5  # keep producing preview frames this long after the last request
+PREVIEW_MAX_AGE_SECONDS = 5  # a preview older than this means the camera has stalled
+PREVIEW_MAX_WIDTH = 960
+PREVIEW_JPEG_QUALITY = 60
 reread_lock = threading.Lock()
 reread_requests = {}
 lane_states = {}
+preview_readers = {}  # camera_id -> the LatestFrameReader of that camera's polling loop
+preview_cache = {}  # camera_id -> (sequence number, jpeg bytes), shared by every viewer
 
 
 def set_lane_status(camera_id, status, detection_id=None):
@@ -85,6 +92,35 @@ def lane_status_snapshot():
             for camera_id, (seen, status, detection_id) in lane_states.items()
             if now - seen <= LANE_STATE_TTL_SECONDS
         }
+
+
+def preview_jpeg(camera_id):
+    """The newest frame of a camera as a JPEG, taken from the connection
+    its polling loop already holds - the admin panel's live view, with no
+    second camera connection and no second decoder. None if that camera
+    has no running loop (inactive, still connecting, or stalled)."""
+    with reread_lock:
+        reader = preview_readers.get(camera_id)
+    if reader is None:
+        return None
+    seq, frame, age = reader.get_preview()
+    if frame is None or age > PREVIEW_MAX_AGE_SECONDS:
+        return None
+    cached = preview_cache.get(camera_id)
+    if cached and cached[0] == seq:
+        return cached[1]
+    height, width = frame.shape[:2]
+    if width > PREVIEW_MAX_WIDTH:
+        frame = cv2.resize(
+            frame, (PREVIEW_MAX_WIDTH, round(height * PREVIEW_MAX_WIDTH / width)),
+            interpolation=cv2.INTER_AREA,
+        )
+    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, PREVIEW_JPEG_QUALITY])
+    if not ok:
+        return None
+    jpeg = buf.tobytes()
+    preview_cache[camera_id] = (seq, jpeg)
+    return jpeg
 
 
 def request_plate_reread(camera_id):
@@ -220,6 +256,13 @@ class LatestFrameReader:
         self._requested = False
         self._finished = False
         self._frame = None
+        # Newest frame kept for the admin panel's live view. Only decoded
+        # to a picture (a cheap colour conversion - the video itself is
+        # already being decoded) while someone is watching.
+        self._preview = None
+        self._preview_seq = 0
+        self._preview_at = 0.0
+        self._preview_until = 0.0
         self._thread = threading.Thread(target=self._drain, daemon=True)
         self._thread.start()
 
@@ -230,6 +273,21 @@ class LatestFrameReader:
             frame, self._frame = self._frame, None
             return frame
 
+    def get_preview(self, wait=1.0):
+        """(sequence number, frame, age in seconds) of the newest preview
+        frame. Asking marks a viewer as present, so frames are produced for
+        the next PREVIEW_ACTIVE_SECONDS; if none is fresh yet (nobody was
+        watching), waits up to `wait` seconds for the first one."""
+        with self._ready:
+            now = time.monotonic()
+            self._preview_until = now + PREVIEW_ACTIVE_SECONDS
+            if self._preview is None or now - self._preview_at >= 1.0:
+                seq = self._preview_seq
+                self._ready.wait_for(lambda: self._preview_seq != seq or self._finished, timeout=wait)
+            if self._preview is None or self._finished:
+                return 0, None, 0.0
+            return self._preview_seq, self._preview, time.monotonic() - self._preview_at
+
     def close(self):
         self._stop.set()
         self._thread.join()
@@ -238,17 +296,29 @@ class LatestFrameReader:
         try:
             while not self._stop.is_set() and self._capture.grab():
                 with self._ready:
-                    if not self._requested:
-                        continue
+                    requested = self._requested
+                    now = time.monotonic()
+                    want_preview = (
+                        now < self._preview_until
+                        and now - self._preview_at >= 1.0 / PREVIEW_MAX_FPS
+                    )
+                if not requested and not want_preview:
+                    continue
 
                 ok, frame = self._capture.retrieve()
                 if not ok:
-                    break
+                    if requested:
+                        break
+                    continue
 
                 with self._ready:
-                    self._frame = frame
-                    self._requested = False
-                    self._ready.notify()
+                    self._preview = frame
+                    self._preview_seq += 1
+                    self._preview_at = time.monotonic()
+                    if requested:
+                        self._frame = frame
+                        self._requested = False
+                    self._ready.notify_all()
         finally:
             try:
                 self._capture.release()
@@ -299,6 +369,8 @@ def camera_loop(camera_id: int):
 
         log.info("connected to line %s", line_number)
         reader = LatestFrameReader(cap)
+        with reread_lock:
+            preview_readers[camera_id] = reader
         candidate_plate = None
         candidate_reads = 0
         reread = None
@@ -485,6 +557,9 @@ def camera_loop(camera_id: int):
                 time.sleep(WORKER_POLL_INTERVAL_SECONDS)
         finally:
             set_lane_status(camera_id, "unavailable")
+            with reread_lock:
+                if preview_readers.get(camera_id) is reader:
+                    del preview_readers[camera_id]
             reader.close()
 
         time.sleep(5)  # brief pause before reconnecting
@@ -513,6 +588,7 @@ def main():
 
     app.state.request_plate_reread = request_plate_reread
     app.state.lane_status_snapshot = lane_status_snapshot
+    app.state.preview_jpeg = preview_jpeg
     log.info("starting internal test-connection API on :9000")
     uvicorn.run(app, host="0.0.0.0", port=9000, log_level="warning")
 

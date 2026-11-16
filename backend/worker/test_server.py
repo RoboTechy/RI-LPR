@@ -19,7 +19,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from pipeline_utils import CHAR_MODEL_PATH, LANE_REGIONS, PLATE_MODEL_PATH, format_plate_short, save_image
 
@@ -74,6 +74,18 @@ def _grab_one_frame(rtsp_url):
 @app.get("/lane-status")
 def lane_status():
     return app.state.lane_status_snapshot()
+
+
+@app.get("/preview/{camera_id}")
+def preview(camera_id: int):
+    """One JPEG of the camera's newest frame, from the connection its
+    polling loop already holds - what the admin panel's live view polls.
+    503 when that camera has no running loop (the panel then falls back to
+    the stream below, which opens its own connection)."""
+    jpeg = app.state.preview_jpeg(camera_id)
+    if jpeg is None:
+        raise HTTPException(status_code=503, detail="no live reader for this camera")
+    return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.post("/reread-plate/{camera_id}")

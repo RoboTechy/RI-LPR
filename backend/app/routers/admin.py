@@ -2,7 +2,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -256,6 +256,25 @@ def camera_test(
     return templates.TemplateResponse(
         request, "camera_test.html", {"admin": admin, "camera": camera, "result": result}
     )
+
+
+@router.get("/cameras/{camera_id}/preview.jpg")
+def camera_preview(camera_id: int, db: Session = Depends(get_db), admin: models.AdminUser = Depends(get_current_admin)):
+    """One current frame of the live view. The page polls this a few times
+    a second: short requests, so any number of open camera tabs fit within
+    the browser's connection limit, and the picture comes from the
+    connection the worker already holds for plate reading. 503 means that
+    camera has no such connection - the page then uses /stream instead."""
+    camera = db.query(models.Camera).get(camera_id)
+    ensure_camera_access(camera, admin)
+    db.close()
+    try:
+        resp = httpx.get(f"{WORKER_INTERNAL_URL}/preview/{camera_id}", timeout=3)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="worker unavailable")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=503, detail="no live frame for this camera")
+    return Response(content=resp.content, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/cameras/{camera_id}/stream")

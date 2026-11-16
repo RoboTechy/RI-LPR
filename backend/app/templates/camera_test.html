@@ -8,7 +8,7 @@
 
   {% if camera %}
   <div class="hint" style="margin-bottom:8px;">پخش زنده</div>
-  <img id="live-stream" data-src="/admin/cameras/{{ camera.id }}/stream" alt="" style="width:100%;aspect-ratio:16/9;object-fit:contain;border-radius:var(--radius);border:1px solid var(--border);display:block;background:#000;cursor:pointer;">
+  <img id="live-stream" data-preview="/admin/cameras/{{ camera.id }}/preview.jpg" data-stream="/admin/cameras/{{ camera.id }}/stream" alt="" style="width:100%;aspect-ratio:16/9;object-fit:contain;border-radius:var(--radius);border:1px solid var(--border);display:block;background:#000;cursor:pointer;">
   <div id="live-note" class="hint" style="margin-top:6px;min-height:1.4em;"></div>
   {% endif %}
 
@@ -48,45 +48,86 @@
 </div>
 {% if camera %}
 <script>
-// A live view is one long-lived connection, and a browser allows only
-// about six per server across ALL tabs. With a stream in every open
-// camera tab the sixth page's request - the test button's - waited
-// forever. So only the tab being looked at streams, the test button lets
-// go of it before submitting, and a forgotten tab stops by itself.
+// The live view polls short "give me the newest frame" requests (served
+// from the connection the worker already holds for plate reading) instead
+// of keeping one endless stream open per tab. Each request is over in a
+// few milliseconds, so any number of camera tabs fit within the browser's
+// six-connections-per-server limit, and a tab shows its picture the moment
+// it is looked at. A hidden tab stops polling but keeps its last picture.
+// Only if the worker has no reader for this camera (503) does it fall back
+// to the old endless stream - which opens its own camera connection, so it
+// runs only while visible, stops before the test button submits, and stops
+// by itself after 5 minutes.
 (function () {
   var img = document.getElementById('live-stream');
   var note = document.getElementById('live-note');
-  var src = img.getAttribute('data-src');
+  var previewUrl = img.getAttribute('data-preview');
+  var streamUrl = img.getAttribute('data-stream');
   var BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
-  var MAX_MS = 5 * 60 * 1000;
-  var running = false;
-  var timer = null;
+  var POLL_MS = 250, MAX_STREAM_MS = 5 * 60 * 1000;
+  var mode = 'preview';      // 'preview' | 'stream'
+  var active = false, timer = null, abort = null, blobUrl = null, failures = 0, streamTimer = null;
+
+  function clearTimers() { clearTimeout(timer); clearTimeout(streamTimer); if (abort) abort.abort(); abort = null; }
+
+  function showBlob(blob) {
+    var next = URL.createObjectURL(blob);
+    img.src = next;
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = next;
+  }
+
+  function poll() {
+    if (!active || mode !== 'preview') return;
+    abort = ('AbortController' in window) ? new AbortController() : null;
+    fetch(previewUrl + '?t=' + Date.now(), { cache: 'no-store', credentials: 'same-origin', signal: abort && abort.signal })
+      .then(function (r) {
+        if (r.status === 503) { startStream(); return null; }
+        var type = r.headers.get('content-type') || '';
+        if (!r.ok || type.indexOf('image/') !== 0) throw new Error('bad response');
+        return r.blob();
+      })
+      .then(function (blob) {
+        if (!blob || !active || mode !== 'preview') return;
+        failures = 0; note.textContent = '';
+        showBlob(blob);
+        timer = setTimeout(poll, POLL_MS);
+      })
+      .catch(function (e) {
+        if (!active || (e && e.name === 'AbortError')) return;
+        failures++;
+        if (failures >= 3) note.textContent = 'ارتباط با سرور برقرار نیست - در حال تلاش مجدد...';
+        timer = setTimeout(poll, Math.min(5000, 500 * failures));
+      });
+  }
+
+  function startStream() {
+    mode = 'stream';
+    note.textContent = '';
+    img.src = streamUrl + '?t=' + Date.now();
+    streamTimer = setTimeout(function () {
+      stop();
+      note.textContent = 'پخش زنده بعد از ۵ دقیقه متوقف شد - برای ادامه روی تصویر کلیک کن';
+    }, MAX_STREAM_MS);
+  }
 
   function start() {
-    if (running) return;
-    running = true;
-    note.textContent = '';
-    img.src = src + '?t=' + Date.now();
-    clearTimeout(timer);
-    timer = setTimeout(function () {
-      stop('پخش زنده بعد از ۵ دقیقه متوقف شد - برای ادامه روی تصویر کلیک کن');
-    }, MAX_MS);
+    if (active) return;
+    active = true;
+    if (mode === 'stream') startStream(); else poll();
   }
 
-  function stop(message) {
-    clearTimeout(timer);
-    running = false;
-    img.src = BLANK;
-    note.textContent = message || '';
+  function stop() {
+    active = false;
+    clearTimers();
+    if (mode === 'stream') img.src = BLANK;   // releases the camera connection
   }
 
-  img.addEventListener('click', start);
-  document.addEventListener('visibilitychange', function () {
-    if (document.hidden) stop(''); else start();
-  });
-  window.addEventListener('pagehide', function () { stop(''); });
+  img.addEventListener('click', function () { if (!active) { mode = 'preview'; failures = 0; note.textContent = ''; start(); } });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) stop(); else start(); });
+  window.addEventListener('pagehide', stop);
   window.addEventListener('pageshow', function (e) { if (e.persisted && !document.hidden) start(); });
-  document.getElementById('test-form').addEventListener('submit', function () { stop(''); });
+  document.getElementById('test-form').addEventListener('submit', stop);
   if (!document.hidden) start();
 })();
 </script>
