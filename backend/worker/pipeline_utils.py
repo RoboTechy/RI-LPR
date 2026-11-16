@@ -22,113 +22,113 @@ CHAR_MODEL_PATH = str(REPO_ROOT / "models" / "ir_lpr_char_detector.onnx")
 
 # A line's region is where its truck's LICENSE PLATE must be (see
 # detect_and_crop_plate): a vehicle is read only if a plate on it lies inside
-# the region, wherever the rest of the truck is. The outlines were traced at
-# the top edge of each line's barrier row, so anything standing in front of
-# the barriers has its plate inside, and a truck on a far road or another
-# line has it outside.
-#
-# Frame coordinates are normalized so the region works at either stream size.
-# Line 2 follows the camera-side base of the separator and includes the full
-# approach and stopping area visible in the 2026-11-10 vehicle samples.
-#
-# Line 1's camera looks across a row of jersey barriers at an unrelated
-# through-road beyond them (confirmed via a live reference frame - two
-# passing trucks visible on that far road, with line 1's own stopping lot
-# empty in the foreground). The region below follows the top edge of that
-# barrier row, excluding everything above/beyond it. Calibrated from a
-# single empty-lot frame (no line 1 truck present yet to verify against) -
-# generous on purpose (the whole foreground lot, full width) so it should
-# safely include a real truck wherever it actually stops; re-check once a
-# frame with an occupied line 1 is available.
+# the region, wherever the rest of the truck is. Each outline follows the TOP
+# edge of that line's jersey barriers (about 1% of the frame height above
+# it), so a plate on a truck standing in front of the barriers is inside,
+# and a truck on a far road or on another lane behind the barriers has its
+# plate outside. Frame coordinates are normalized (x, y in 0..1) so a region
+# works at either stream size. Traced from live frames, 2026-11-15/16.
 LANE_REGIONS = {
+    # Line 1: along the top edge of the jersey barriers (1 point margin up).
     1: (
-        (0, 0.40),
-        (0.2, 0.40),
-        (0.4, 0.415),
-        (0.6, 0.425),
-        (0.8, 0.44),
-        (1, 0.46),
+        (0, 0.424),
+        (0.1, 0.421),
+        (0.3, 0.421),
+        (0.5, 0.423),
+        (0.65, 0.43),
+        (0.8, 0.434),
+        (0.9, 0.443),
+        (1, 0.457),
         (1, 1),
         (0, 1),
     ),
-    # Line 2 is traced for where its trucks' PLATES sit, not at the barrier
-    # edge: a truck stopped close to the camera has its plate well above the
-    # barrier line in the image (plate at about x=.43, y=.345 in the
-    # 2026-11-16 test frames), while the plate of the truck on the next lane
-    # behind the barrier is at about x=.78, y=.42 and must stay outside.
+    # Line 2: along the top of the barriers too, except a dip at x .76-.84:
+    # the gap between two blocks where the plate of the truck on the next
+    # lane shows through (x=.78, y=.42 in the 2026-11-16 frames) - it must
+    # stay outside. A near truck's plate (x=.43, y=.345) is inside.
     2: (
-        (0, 0.2),
-        (0.14, 0.22),
-        (0.28, 0.26),
-        (0.46, 0.30),
-        (0.63, 0.40),
-        (0.78, 0.47),
-        (0.9, 0.52),
-        (1, 0.56),
+        (0, 0.198),
+        (0.14, 0.223),
+        (0.28, 0.263),
+        (0.46, 0.323),
+        (0.54, 0.326),
+        (0.6, 0.35),
+        (0.75, 0.356),
+        (0.76, 0.44),
+        (0.84, 0.44),
+        (0.85, 0.383),
+        (1, 0.393),
         (1, 1),
         (0, 1),
     ),
-    # Lines 3, 4, 5, 6 have the same barrier-row layout as 1/2 - confirmed
-    # via live reference frames. Lines 5 and 6 in particular showed a real,
-    # unrelated truck sitting right at/behind their barrier row at the time
-    # the frame was grabbed (visually confirmed excluded by these regions,
-    # not just by the numbers), which is exactly the failure mode this
-    # exists to prevent. The site convention (confirmed with the user) is
-    # that a line's own truck stops IN FRONT of the barriers, camera side -
-    # same assumption lines 1/2 already use. Each region here carries a
-    # deliberate few-percent safety margin below the barrier top itself
-    # (not traced exactly at it) so a real detection landing a little off
-    # from this manual trace doesn't flip inside/outside unpredictably.
+    # Lines 3-6: along the top edge of the jersey barriers, about 1% of the
+    # frame height above it.
     3: (
-        (0, 0.37),
-        (0.2, 0.39),
-        (0.4, 0.43),
-        (0.6, 0.46),
-        (0.8, 0.5),
-        (1, 0.54),
+        (0, 0.308),
+        (0.107, 0.314),
+        (0.229, 0.335),
+        (0.298, 0.352),
+        (0.4, 0.376),
+        (0.47, 0.378),
+        (0.554, 0.434),
+        (0.64, 0.449),
+        (0.73, 0.478),
+        (0.794, 0.466),
+        (0.853, 0.485),
+        (0.986, 0.529),
+        (1, 0.534),
         (1, 1),
         (0, 1),
     ),
     4: (
-        (0, 0.34),
-        (0.2, 0.37),
-        (0.35, 0.41),
-        (0.5, 0.425),
-        (0.7, 0.44),
-        (0.9, 0.46),
-        (1, 0.47),
+        (0, 0.478),
+        (0.032, 0.472),
+        (0.123, 0.462),
+        (0.2, 0.453),
+        (0.267, 0.445),
+        (0.357, 0.436),
+        (0.5, 0.424),
+        (0.576, 0.422),
+        (0.672, 0.421),
+        (0.78, 0.417),
+        (1, 0.417),
         (1, 1),
         (0, 1),
     ),
     5: (
-        (0, 0.36),
-        (0.1, 0.34),
-        (0.2, 0.3),
-        (0.3, 0.24),
-        (0.4, 0.2),
-        (0.5, 0.16),
-        (0.6, 0.14),
-        (1, 0.12),
+        (0, 0.353),
+        (0.07, 0.328),
+        (0.13, 0.308),
+        (0.2, 0.268),
+        (0.255, 0.238),
+        (0.32, 0.208),
+        (0.4, 0.173),
+        (0.48, 0.158),
+        (0.55, 0.133),
+        (0.62, 0.128),
+        (0.75, 0.103),
+        (0.85, 0.1),
+        (1, 0.1),
         (1, 1),
         (0, 1),
     ),
     6: (
-        (0, 0.35),
-        (0.1, 0.35),
-        (0.2, 0.37),
-        (0.3, 0.38),
-        (0.4, 0.4),
-        (0.5, 0.41),
-        (0.6, 0.42),
-        (0.7, 0.44),
-        (0.8, 0.45),
-        (0.9, 0.46),
-        (1, 0.47),
+        (0, 0.343),
+        (0.1, 0.338),
+        (0.15, 0.323),
+        (0.2, 0.313),
+        (0.26, 0.303),
+        (0.36, 0.288),
+        (0.47, 0.298),
+        (0.56, 0.288),
+        (0.677, 0.286),
+        (0.76, 0.282),
+        (0.96, 0.286),
+        (1, 0.278),
         (1, 1),
         (0, 1),
     ),
 }
-
 
 def format_plate_short(chars):
     """Mirrors extension/content.js's formatPlateShort() - must stay in
