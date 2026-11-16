@@ -149,6 +149,9 @@ def _get_vehicle_detector():
 # this project only cares about reading plates, not the vehicle type, so
 # a genuine bus getting through here too is harmless.
 VEHICLE_CLASS_IDS = (2, 5, 7)
+# With a lane region, how many vehicles (biggest first) to look for an
+# in-region plate on - each costs one plate-detector run.
+MAX_VEHICLES_TRIED = 4
 
 # General-purpose (not Iran-specific) plate detector, used only as a
 # fallback - see _detect_plate_box(). A rectangular plate looks roughly
@@ -220,70 +223,64 @@ def detect_and_crop_plate(image_name, debug=False, show=False, prefix="image",
     yolo_model = _get_vehicle_detector()
     car_results = yolo_model(image_name, verbose=False)
     car_boxes = filter_boxes_by_class(car_results[0].boxes, VEHICLE_CLASS_IDS)
-    outside_lane = []
-    if lane_region is not None:
-        height, width = car_results[0].orig_shape
-        region = np.asarray(lane_region, dtype=np.float32)
-        inside_lane = []
-        for box in car_boxes:
-            x = float(box[0] + box[2]) / (2 * width)
-            y = min(float(box[3]), height - 1) / height
-            if cv2.pointPolygonTest(region, (x, y), False) >= 0:
-                inside_lane.append(box)
-            else:
-                outside_lane.append(box)
-        car_boxes = inside_lane
+    img = cv2.imread(image_name)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
     if len(car_boxes) == 0:
         raise ValueError("No cars or trucks detected in the image.")
 
-    # sort by area
+    # biggest first
     sorted_car_boxes = sorted(car_boxes, key=lambda x: abs(x[2] - x[0]) * abs(x[3] - x[1]), reverse=True)
-
-    img = cv2.imread(image_name)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    # draw the biggest car's bbox
-    car_bbox = sorted_car_boxes[0]
-    img_drawn = cv2.rectangle(img.copy(), (int(car_bbox[0]), int(car_bbox[1])), (int(car_bbox[2]), int(car_bbox[3])), (255, 255, 0), 6)
-
-    if debug:
-        plt.figure(figsize=(10, 10))
-        plt.axis('off')
-        plt.imshow(img_drawn)
-        plt.title("Detect the Car")
-        plt.savefig(f"{prefix}_car_bbox.png", bbox_inches='tight')
-        if show:
-            plt.show()
-
-    # crop the car from the image
-    cropped_car_image = img[int(car_bbox[1]):int(car_bbox[3]), int(car_bbox[0]):int(car_bbox[2])]
-
-    if debug:
-        plt.figure(figsize=(10, 10))
-        plt.axis('off')
-        plt.imshow(cropped_car_image)
-        plt.title("Cropped Car Image")
-        plt.savefig(f"{prefix}_cropped_car_image.png", bbox_inches='tight')
-        if show:
-            plt.show()
 
     # detect the license plate in the cropped car image
     # (retrained on the IR-LPR dataset - see models/README.md; falls back
     # to the original small-dataset weights if that model isn't present,
     # then to a general-purpose detector if even that finds nothing)
-    def belongs_to_selected_vehicle(box):
-        # A large vehicle crop can also contain a separately detected truck
-        # behind the separator. Ignore plates centered in that truck's box.
-        x = (box[0] + box[2]) / 2 + int(car_bbox[0])
-        y = (box[1] + box[3]) / 2 + int(car_bbox[1])
-        return not any(left <= x <= right and top <= y <= bottom
-                       for left, top, right, bottom in outside_lane)
+    car_bbox = cropped_car_image = license_box = None
+    if lane_region is None:
+        car_bbox = sorted_car_boxes[0]
+        cropped_car_image = img[int(car_bbox[1]):int(car_bbox[3]), int(car_bbox[0]):int(car_bbox[2])]
+        license_box = _detect_plate_box(cropped_car_image, plate_model_path)
+    else:
+        # The lane region is where a line's PLATE has to be - not where
+        # the truck is. A vehicle counts if (and only if) a plate on it
+        # sits inside the region, wherever the rest of the truck is, so a
+        # truck standing short of, or partly beyond, the usual spot is
+        # still read, and a truck on another line whose plate is outside
+        # is ignored. Biggest vehicles are tried first, a few at most.
+        height, width = img.shape[:2]
+        region = np.asarray(lane_region, dtype=np.float32)
 
-    license_box = _detect_plate_box(
-        cropped_car_image, plate_model_path,
-        accept_box=belongs_to_selected_vehicle if outside_lane else None,
-    )
+        def inside(x, y):
+            return cv2.pointPolygonTest(region, (float(x) / width, float(y) / height), False) >= 0
+
+        vehicle_in_lane = False
+        for candidate in sorted_car_boxes[:MAX_VEHICLES_TRIED]:
+            x1, y1 = max(int(candidate[0]), 0), max(int(candidate[1]), 0)
+            x2, y2 = int(candidate[2]), int(candidate[3])
+            crop = img[y1:y2, x1:x2]
+            if crop.size == 0:
+                continue
+            # the old rule (where the truck's bottom edge is) now only
+            # tells a vehicle whose plate can't be seen apart from no
+            # vehicle at all - see camera_worker's presence tracking
+            if inside((candidate[0] + candidate[2]) / 2, min(float(candidate[3]), height - 1)):
+                vehicle_in_lane = True
+
+            def plate_in_region(box, x1=x1, y1=y1):
+                return inside((box[0] + box[2]) / 2 + x1, (box[1] + box[3]) / 2 + y1)
+
+            plate = _detect_plate_box(crop, plate_model_path, accept_box=plate_in_region)
+            if plate is not None:
+                car_bbox = np.array([x1, y1, x2, y2], dtype=float)
+                cropped_car_image = crop
+                license_box = plate
+                break
+        if license_box is None:
+            if vehicle_in_lane:
+                raise ValueError("No license plate detected in the cropped vehicle image.")
+            raise ValueError("No cars or trucks detected whose license plate is inside the lane region.")
+
     if license_box is None:
         raise ValueError("No license plate detected in the cropped vehicle image.")
 

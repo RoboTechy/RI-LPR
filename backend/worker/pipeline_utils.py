@@ -20,6 +20,13 @@ PLATE_MODEL_PATH = str(REPO_ROOT / "models" / "ir_lpr_plate_detector.onnx")
 CHAR_MODEL_PATH = str(REPO_ROOT / "models" / "ir_lpr_char_detector.onnx")
 
 
+# A line's region is where its truck's LICENSE PLATE must be (see
+# detect_and_crop_plate): a vehicle is read only if a plate on it lies inside
+# the region, wherever the rest of the truck is. The outlines were traced at
+# the top edge of each line's barrier row, so anything standing in front of
+# the barriers has its plate inside, and a truck on a far road or another
+# line has it outside.
+#
 # Frame coordinates are normalized so the region works at either stream size.
 # Line 2 follows the camera-side base of the separator and includes the full
 # approach and stopping area visible in the 2026-11-10 vehicle samples.
