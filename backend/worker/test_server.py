@@ -105,7 +105,11 @@ def test_camera(camera_id: int):
     finally:
         db.close()
 
-    frame = _grab_one_frame(rtsp_url)
+    # Prefer the frame from the connection the worker already holds; open
+    # a new connection only if that camera has no running loop.
+    frame = app.state.latest_frame(camera_id)
+    if frame is None:
+        frame = _grab_one_frame(rtsp_url)
     if frame is None:
         return {"success": False, "error": "اتصال به دوربین برقرار نشد یا تصویری دریافت نشد"}
 

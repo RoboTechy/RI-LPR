@@ -123,6 +123,21 @@ def preview_jpeg(camera_id):
     return jpeg
 
 
+def latest_frame(camera_id):
+    """The newest frame (BGR) from the connection the camera's polling loop
+    already holds, or None. The admin panel's test button uses this instead
+    of opening yet another connection to the camera - cameras limit how
+    many they serve at once, and a fresh H.265 connection takes seconds."""
+    with reread_lock:
+        reader = preview_readers.get(camera_id)
+    if reader is None:
+        return None
+    _seq, frame, age = reader.get_preview(wait=2.0)
+    if frame is None or age > PREVIEW_MAX_AGE_SECONDS:
+        return None
+    return frame.copy()
+
+
 def request_plate_reread(camera_id):
     request = Future()
     with reread_lock:
@@ -589,6 +604,7 @@ def main():
     app.state.request_plate_reread = request_plate_reread
     app.state.lane_status_snapshot = lane_status_snapshot
     app.state.preview_jpeg = preview_jpeg
+    app.state.latest_frame = latest_frame
     log.info("starting internal test-connection API on :9000")
     uvicorn.run(app, host="0.0.0.0", port=9000, log_level="warning")
 
