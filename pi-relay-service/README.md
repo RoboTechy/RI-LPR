@@ -64,7 +64,7 @@ Edit `config.py`:
 
 ```bash
 source .venv/bin/activate
-export $(grep RELAY_API_KEY .env)
+export $(grep '^RELAY_API_KEY=' .env)
 python3 relay_service.py
 ```
 
