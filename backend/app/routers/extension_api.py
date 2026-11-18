@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session, aliased
 
 from .. import models, relay_client, schemas
+from ..settings import get_auto_green_seconds, get_light_mode
 from ..config import ACTIVE_PLATE_WINDOW_MINUTES, PLATE_SUPPRESS_AFTER_SAVE_MINUTES, WORKER_INTERNAL_URL
 from ..database import get_db
 from ..security import check_extension_api_key
@@ -262,9 +263,10 @@ def create_permit_log(payload: schemas.PermitLogIn, request: Request, db: Sessio
     if line_number_to_light is not None:
         # Best-effort (see relay_client.py) - a relay/network hiccup must
         # never fail saving the permit, which already succeeded above.
-        # mode="auto": stays green until the worker's own camera loop
-        # decides the truck has left (see camera_worker.py), not a fixed
-        # timer - that's only for the admin panel's manual button.
-        relay_client.set_light(line_number_to_light, "green", mode="auto")
+        # Only in AUTOMATIC mode: the light goes green for the admin-set
+        # time and the Pi turns it red again itself. A line set to MANUAL
+        # is left alone - its operator controls the light.
+        if get_light_mode(db, line_number_to_light) == "auto":
+            relay_client.set_light(line_number_to_light, "green", seconds=get_auto_green_seconds(db))
 
     return schemas.PermitLogOut(id=log.id)

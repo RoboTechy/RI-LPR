@@ -6,14 +6,9 @@ API_KEY = os.environ.get("RELAY_API_KEY", "change-me-relay-key")
 PORT = int(os.environ.get("RELAY_PORT", "8080"))
 HOST = os.environ.get("RELAY_HOST", "0.0.0.0")
 
-# How long a light stays GREEN, in seconds, every time it is turned green
-# (a saved permit, or the admin panel's green button) - then it goes back
-# to red on its own. Change the number here (or set RELAY_GREEN_SECONDS in
-# .env) and restart the service: sudo systemctl restart ri-lpr-relay
-# Turning a light green again while it is already green starts the time
-# over. This is the only green duration - the "seconds" the backend may
-# send with a request is ignored on purpose, so this file is the one
-# place to change it.
+# Fallback green time (seconds), used only when a request does not say how
+# long. Normally the backend always says: the admin panel's setting decides
+# (automatic mode), or 0 = stay green until turned red (manual mode).
 GREEN_SECONDS = float(os.environ.get("RELAY_GREEN_SECONDS", "30"))
 
 # What each line's GPIO pin does (plain logic level, no relay inversion):

@@ -17,7 +17,9 @@ from ..security import (
     require_superuser,
     verify_password,
 )
-from ..settings import get_manual_green_seconds, set_manual_green_seconds
+from ..settings import (
+    LIGHT_MODES, get_auto_green_seconds, get_light_mode, set_auto_green_seconds, set_light_mode,
+)
 from .extension_api import plate_digits
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -99,11 +101,12 @@ def cameras_list(request: Request, db: Session = Depends(get_db), admin: models.
     # page load on it was exactly the few-seconds-every-time slowness
     # reported when the Pi wasn't set up.
     cameras = visible_cameras(db, admin)
-    manual_green_seconds = get_manual_green_seconds(db)
+    auto_green_seconds = get_auto_green_seconds(db)
+    light_modes = {cam.line_number: get_light_mode(db, cam.line_number) for cam in cameras}
     return templates.TemplateResponse(
         request,
         "cameras.html",
-        {"admin": admin, "cameras": cameras, "manual_green_seconds": manual_green_seconds},
+        {"admin": admin, "cameras": cameras, "auto_green_seconds": auto_green_seconds, "light_modes": light_modes},
     )
 
 
@@ -114,20 +117,19 @@ def cameras_lights_status(admin: models.AdminUser = Depends(get_current_admin)):
     return relay_client.get_all_lights()
 
 
-@router.post("/settings/manual-green-seconds")
-def update_manual_green_seconds(
+@router.post("/settings/auto-green-seconds")
+def update_auto_green_seconds(
     seconds: float = Form(...),
     db: Session = Depends(get_db),
     admin: models.AdminUser = Depends(require_superuser),
 ):
-    """How long (seconds) a line's light stays green when turned on
-    manually from this page's own سبز کردن button - NOT when triggered
-    automatically by a saved permit, which instead stays green exactly
-    as long as the worker's camera still sees that truck (see
-    camera_worker.py / relay_client.set_light_red_if_auto)."""
-    if seconds <= 0:
-        raise HTTPException(status_code=400, detail="مدت زمان باید مثبت باشد")
-    set_manual_green_seconds(db, seconds)
+    """How long (seconds) a line's light stays green in AUTOMATIC mode,
+    i.e. after a permit is saved for a truck on that line. The Pi turns
+    it red again by itself when the time is up. Lines in MANUAL mode
+    ignore this - their light is set by hand."""
+    if seconds <= 0 or seconds > 3600:
+        raise HTTPException(status_code=400, detail="مدت زمان باید بین ۱ تا ۳۶۰۰ ثانیه باشد")
+    set_auto_green_seconds(db, seconds)
     return RedirectResponse("/admin/cameras", status_code=303)
 
 
@@ -298,6 +300,31 @@ def camera_stream(camera_id: int, db: Session = Depends(get_db), admin: models.A
     return StreamingResponse(proxy(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
+@router.post("/cameras/{camera_id}/light-mode/{mode}")
+def camera_light_mode_set(
+    camera_id: int,
+    mode: str,
+    db: Session = Depends(get_db),
+    admin: models.AdminUser = Depends(get_current_admin),
+):
+    """Puts a line's light in AUTOMATIC ("auto": a saved permit turns it
+    green for the admin-set time) or MANUAL ("manual": only the green/red
+    buttons below change it). Any account with access to this camera may
+    switch it, like the buttons themselves. Going back to automatic turns
+    the light red first, so a light left green by hand can't stay green
+    forever."""
+    camera = db.query(models.Camera).get(camera_id)
+    ensure_camera_access(camera, admin)
+    if mode not in LIGHT_MODES:
+        raise HTTPException(status_code=400, detail="حالت نامعتبر است")
+    if camera is not None:
+        previous = get_light_mode(db, camera.line_number)
+        set_light_mode(db, camera.line_number, mode)
+        if mode == "auto" and previous != "auto":
+            relay_client.set_light(camera.line_number, "red")
+    return RedirectResponse("/admin/cameras", status_code=303)
+
+
 @router.post("/cameras/{camera_id}/light/{color}")
 def camera_light_set(
     camera_id: int,
@@ -305,21 +332,20 @@ def camera_light_set(
     db: Session = Depends(get_db),
     admin: models.AdminUser = Depends(get_current_admin),
 ):
-    """Manual override for a line's traffic light - available to any
-    logged-in account (admin or اوپراتور) that has access to this
-    camera, not just مدیر; this is routine operational use, not service
-    configuration. Turning it green here always reverts to red after
-    `manual_green_seconds` (مدیر-editable, see update_manual_green_seconds())
-    regardless of what any camera sees - unlike the automatic trigger on
-    a saved permit, which stays green exactly as long as the worker's
-    camera still sees that truck."""
+    """Manual control of a line's traffic light - for any logged-in
+    account (admin or اوپراتور) with access to this camera. Only while the
+    line is in MANUAL mode; green then stays on until red is pressed (no
+    timer). In automatic mode the light follows saved permits and the
+    configured time, and these buttons are refused."""
     camera = db.query(models.Camera).get(camera_id)
     ensure_camera_access(camera, admin)
     if color not in ("green", "red"):
         raise HTTPException(status_code=400, detail="رنگ نامعتبر است")
     if camera is not None:
+        if get_light_mode(db, camera.line_number) != "manual":
+            raise HTTPException(status_code=400, detail="این لاین روی حالت خودکار است - ابتدا آن را روی «دستی» بگذارید")
         if color == "green":
-            relay_client.set_light(camera.line_number, "green", mode="manual", seconds=get_manual_green_seconds(db))
+            relay_client.set_light(camera.line_number, "green", seconds=0)
         else:
             relay_client.set_light(camera.line_number, "red")
     return RedirectResponse("/admin/cameras", status_code=303)

@@ -14,13 +14,19 @@ Each line has one GPIO pin:
 - pin **HIGH = 1 -> green**
 - pin **LOW = 0 -> red** (the idle state; pins start LOW at boot)
 
-Whenever a light is turned green - by a saved permit or by the admin
-panel's green button - it stays green for **`GREEN_SECONDS`** (30 s) and
-then goes back to red by itself. A new green while it is still green
-restarts the time. `POST /light/{line}/red` turns it red at once. The
-`seconds` value the backend sends and the backend's "truck left" call are
-accepted but ignored: `config.py` alone decides, so the time is changed in
-one place only.
+How long it stays green is decided **in the admin panel** (دوربین‌ها
+page), and the backend sends it with every request:
+
+- line in **automatic** mode: a saved permit turns the light green for the
+  configured number of seconds (`?seconds=N`), then the Pi turns it red by
+  itself;
+- line in **manual** mode: the operator's "سبز کردن" sends `?seconds=0`
+  (no timer) and the light stays green until "قرمز کردن".
+
+`GREEN_SECONDS` in `config.py` (30) is only a fallback for a request that
+carries no `seconds` at all (e.g. a hand `curl`). `POST /light/{line}/red`
+turns it red at once. The backend's old "truck left" call is accepted but
+does nothing.
 
 ## Pins (BCM numbers, edit `LINE_TO_PIN` in `config.py` to change)
 
@@ -53,8 +59,7 @@ The venv is **not optional** - the systemd service runs
 `.venv/bin/python3`.
 
 Edit `config.py`:
-- `GREEN_SECONDS` - how long green stays on (default 30). Can also be set
-  as `RELAY_GREEN_SECONDS` in `.env`.
+- `GREEN_SECONDS` - fallback green time when a request gives none (30).
 - `LINE_TO_PIN` - the pins above.
 - `GREEN_IS_HIGH` - leave `True` for 1 = green.
 
@@ -74,7 +79,7 @@ From another machine (or a second terminal):
 curl http://<pi-ip>:8080/health                                       # no key needed
 curl -X POST -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/light/1/green
 curl -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/lights        # line 1 green
-# measure pin 11 (BCM 17): 3.3 V while green; after 30 s it is 0 V and /lights shows red
+# measure pin 11 (BCM 17): 3.3 V while green; with no ?seconds= it is 0 V again after 30 s, and /lights shows red
 curl -X POST -H "X-API-Key: <RELAY_API_KEY>" http://<pi-ip>:8080/light/1/red   # red at once
 ```
 
@@ -108,14 +113,12 @@ PI_RELAY_API_KEY=<same value as RELAY_API_KEY above>
 Then `docker compose restart api` (no rebuild needed - these are just
 environment variables). After that:
 
-- Saving a permit in the extension turns that line's light green; so
-  does the admin panel's "سبز کردن" button. Either way it stays green for
-  `GREEN_SECONDS` (this folder's `config.py`) and goes back to red by
-  itself. The "green duration" setting on the admin panel's دوربین‌ها
-  page no longer has any effect, and neither does the worker's "truck
-  left" signal - the Pi's own timer decides.
-- "قرمز کردن" turns the light red immediately. The page shows each
-  line's current color; operators may use both buttons.
+- Each line is in **automatic** or **manual** mode (switchable on the
+  دوربین‌ها page). Automatic: saving a permit turns that line's light green
+  for the time set at the top of that page (مدیر only), then it goes red
+  by itself. Manual: saving a permit does nothing to the light; an
+  operator uses "سبز کردن" / "قرمز کردن", and green stays until red.
+- The page shows each line's current color.
 
 If the Pi is unreachable, nothing else breaks - saving a permit and the
 admin panel both treat the relay service as best-effort (see

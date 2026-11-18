@@ -4,11 +4,11 @@
 {% if admin.is_superuser %}
 <div class="card">
   <div class="card-header"><h3>تنظیمات چراغ راهنمایی</h3></div>
-  <form method="post" action="/admin/settings/manual-green-seconds" style="display:flex;align-items:flex-end;gap:10px;">
+  <form method="post" action="/admin/settings/auto-green-seconds" style="display:flex;align-items:flex-end;gap:10px;">
     <div>
-      <label style="margin-top:0;">مدت سبز ماندن دستی (ثانیه)</label>
-      <input type="number" name="seconds" min="1" step="1" value="{{ manual_green_seconds|int }}" style="width:140px;">
-      <div class="hint">فقط برای دکمه «سبز کردن» دستی - سبز شدن خودکار (بعد از سیو) تا وقتی کامیون همون‌جاست سبز می‌مونه، مستقل از این تنظیم.</div>
+      <label style="margin-top:0;">مدت سبز ماندن در حالت خودکار (ثانیه)</label>
+      <input type="number" name="seconds" min="1" max="3600" step="1" value="{{ auto_green_seconds|int }}" style="width:140px;">
+      <div class="hint">حالت خودکار: بعد از سیو مجوز، چراغ همان لاین به این مدت سبز می‌شود و خودش قرمز می‌گردد. حالت دستی: فقط اپراتور با دکمه‌ها سبز/قرمز می‌کند و چراغ تا قرمز شدن دستی سبز می‌ماند.</div>
     </div>
     <button class="btn" type="submit">ذخیره</button>
   </form>
@@ -43,6 +43,14 @@
         </td>
         <td>
           <span class="pill neutral light-status" data-line="{{ cam.line_number }}">در حال بررسی…</span>
+          {% set mode = light_modes[cam.line_number] %}
+          <div class="actions" style="margin-top:6px;">
+            <span class="pill {{ 'success' if mode == 'auto' else 'neutral' }}">{{ 'خودکار' if mode == 'auto' else 'دستی' }}</span>
+            <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/light-mode/{{ 'manual' if mode == 'auto' else 'auto' }}">
+              <button class="btn secondary sm" type="submit">{{ 'تغییر به دستی' if mode == 'auto' else 'تغییر به خودکار' }}</button>
+            </form>
+          </div>
+          {% if mode == 'manual' %}
           <div class="actions" style="margin-top:6px;">
             <form class="inline" method="post" action="/admin/cameras/{{ cam.id }}/light/green">
               <button class="btn sm" type="submit" style="background:#16a34a;">سبز کردن</button>
@@ -51,6 +59,7 @@
               <button class="btn sm" type="submit" style="background:#dc2626;">قرمز کردن</button>
             </form>
           </div>
+          {% endif %}
         </td>
         <td>
           <div class="actions">

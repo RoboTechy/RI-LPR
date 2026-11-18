@@ -5,18 +5,19 @@ docker-compose. Controls each line's traffic light: HTTP in, GPIO out.
 
 Each line has one GPIO pin (config.LINE_TO_PIN):
     1 (HIGH) = green light        0 (LOW) = red light
-Red is the idle state - the pins start LOW. Every time a light is turned
-green it stays green for config.GREEN_SECONDS (30 s by default, change it
-in config.py) and then goes back to red by itself. Turning it green again
-while it is still green restarts the time.
+Red is the idle state - the pins start LOW. How long green lasts is sent
+by the backend with every request (?seconds=N, set in the admin panel):
+N > 0 - back to red by itself after N seconds (restarted if turned green
+again meanwhile); N = 0 - no timer, stays green until /red (manual mode).
+If the request has no ?seconds=, config.GREEN_SECONDS (30 s) is used.
 
 Setup: see README.md in this folder.
 
 API (every endpoint but /health needs header X-API-Key: <config.API_KEY>):
-    POST /light/{line_number}/green  - pin to 1; back to 0 after
-                                       config.GREEN_SECONDS. Any ?mode= /
-                                       ?seconds= the backend adds is
-                                       accepted but ignored.
+    POST /light/{line_number}/green[?seconds=N]
+                                     - pin to 1; back to 0 after N seconds
+                                       (N=0: stays green; omitted:
+                                       config.GREEN_SECONDS)
     POST /light/{line_number}/red    - pin to 0 immediately
     POST /light/{line_number}/red-if-auto
                                      - does nothing (kept so the backend's
@@ -47,14 +48,18 @@ class Light:
         self._revert_timer = None
         self._lock = threading.Lock()
 
-    def set_green(self):
+    def set_green(self, seconds: Optional[float] = None):
+        """seconds: None -> config.GREEN_SECONDS; 0 -> stay green until
+        set_red(); otherwise that many seconds."""
+        duration = config.GREEN_SECONDS if seconds is None else seconds
         with self._lock:
             self._cancel_timer_locked()
             self.device.on()
             self.color = "green"
-            self._revert_timer = threading.Timer(config.GREEN_SECONDS, self.set_red)
-            self._revert_timer.daemon = True
-            self._revert_timer.start()
+            if duration > 0:
+                self._revert_timer = threading.Timer(duration, self.set_red)
+                self._revert_timer.daemon = True
+                self._revert_timer.start()
 
     def set_red(self):
         with self._lock:
@@ -94,12 +99,15 @@ def health():
 @app.post("/light/{line_number}/green")
 def light_green(
     line_number: int,
-    mode: Optional[str] = None,  # accepted for the backend's sake, ignored
-    seconds: Optional[float] = None,  # ignored - config.GREEN_SECONDS rules
+    seconds: Optional[float] = None,
+    mode: Optional[str] = None,  # old backends sent this; ignored
     _auth: None = Depends(check_api_key),
 ):
-    get_light(line_number).set_green()
-    return {"line_number": line_number, "color": "green", "seconds": config.GREEN_SECONDS}
+    if seconds is not None and (seconds < 0 or seconds > 86400):
+        raise HTTPException(status_code=400, detail="seconds must be between 0 and 86400")
+    get_light(line_number).set_green(seconds)
+    return {"line_number": line_number, "color": "green",
+            "seconds": config.GREEN_SECONDS if seconds is None else seconds}
 
 
 @app.post("/light/{line_number}/red")
@@ -110,7 +118,7 @@ def light_red(line_number: int, _auth: None = Depends(check_api_key)):
 
 @app.post("/light/{line_number}/red-if-auto")
 def light_red_if_auto(line_number: int, _auth: None = Depends(check_api_key)):
-    # Deliberately a no-op: the light stays green for GREEN_SECONDS.
+    # Deliberately a no-op: a light follows its own timer (or the operator).
     return {"line_number": line_number, "color": get_light(line_number).color}
 
 

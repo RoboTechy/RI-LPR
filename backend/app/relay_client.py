@@ -25,22 +25,19 @@ log = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 2
 
 
-def set_light(line_number: int, color: str, mode: str = "manual", seconds: float | None = None) -> bool:
+def set_light(line_number: int, color: str, seconds: float | None = None) -> bool:
     """color: "green" or "red".
 
-    mode only matters for color="green" - "auto" (saving a permit)
-    stays green with no timer until something explicitly turns it red
-    again (see set_light_red_if_auto() below); "manual" (the admin
-    panel's own button) auto-reverts to red after `seconds` (falls back
-    to the Pi's own default if omitted - see pi-relay-service/config.py).
+    For green, `seconds` is how long the Pi keeps it green before going
+    back to red by itself; 0 means no timer - it stays green until it is
+    explicitly turned red (what manual mode uses). Omitted: the Pi's own
+    default (pi-relay-service/config.py GREEN_SECONDS).
 
     Returns True if the Pi acknowledged it."""
     try:
         params = {}
-        if color == "green":
-            params["mode"] = mode
-            if seconds is not None:
-                params["seconds"] = seconds
+        if color == "green" and seconds is not None:
+            params["seconds"] = seconds
         resp = httpx.post(
             f"{PI_RELAY_SERVICE_URL}/light/{line_number}/{color}",
             params=params,

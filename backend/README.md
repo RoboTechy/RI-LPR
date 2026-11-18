@@ -183,21 +183,17 @@ docker compose restart api worker
 
 ## Traffic light (Raspberry Pi relay)
 
-Saving a permit (linked to a detection) turns that line's physical
-traffic light green - and keeps it green for exactly as long as the
-worker's camera still sees that truck (`WORKER_PRESENCE_GAP_SECONDS`/
-the IoU-based same-truck check, same logic used for DetectedPlate
-rows), reverting to red the moment it decides the truck has left. No
-fixed timer for this path on purpose - a truck can take however long
-it takes.
+Each line's traffic light is in one of two modes, set on the
+دوربین‌ها page (any account with access to the camera may switch it):
 
-The دوربین‌ها page also shows each line's current light color with
-manual "سبز کردن"/"قرمز کردن" buttons - available to اوپراتور accounts
-too, since this is routine day-to-day use, not service configuration.
-A *manual* green instead always reverts after a fixed duration -
-**مدیر**-editable right there on the same page (`manual_green_seconds`,
-an `AppSetting` row) - regardless of what any camera sees; this is a
-deliberately different, simpler behavior from the automatic case.
+- **خودکار (automatic, default)** - saving a permit linked to a detection
+  turns that line's light green for the number of seconds set at the top
+  of the page (**مدیر** only, default 30); the Pi then turns it red by
+  itself. The green/red buttons are hidden.
+- **دستی (manual)** - saving a permit does not touch the light. The
+  operator uses "سبز کردن" / "قرمز کردن"; green stays until red is
+  pressed (no timer). Switching a line back to automatic turns its light
+  red first.
 
 See `../pi-relay-service/README.md` for the Pi-side setup (wiring, GPIO
 pin mapping, systemd service) and `PI_RELAY_SERVICE_URL`/
