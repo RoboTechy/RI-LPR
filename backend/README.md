@@ -195,6 +195,10 @@ Each line's traffic light is in one of two modes, set on the
   pressed (no timer). Switching a line back to automatic turns its light
   red first.
 
+The lights can be driven by either a Raspberry Pi (`../pi-relay-service/`)
+or an Arduino Mega + Ethernet shield (`../arduino-relay/`) - both answer
+the same commands, so which one is used is just `PI_RELAY_SERVICE_URL`.
+
 See `../pi-relay-service/README.md` for the Pi-side setup (wiring, GPIO
 pin mapping, systemd service) and `PI_RELAY_SERVICE_URL`/
 `PI_RELAY_API_KEY` above for pointing this backend at it. If the Pi is
