@@ -52,7 +52,7 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 
 from license_plate_extractor import read_plate  # noqa: E402
 
-from app import models, relay_client  # noqa: E402
+from app import models  # noqa: E402
 from app.config import (  # noqa: E402
     WORKER_FAILED_READ_INTERVAL_SECONDS,
     WORKER_IOU_SAME_TRUCK_THRESHOLD,
@@ -471,15 +471,12 @@ def camera_loop(camera_id: int):
                 # and is simply never detected again still gets noticed
                 # promptly (on the first poll past the gap), not only
                 # reactively whenever something later happens to be
-                # detected. Also turns that line's light back red, but
-                # only if it's green because of an automatic (Save-
-                # triggered) trigger - never interrupts a manual test
-                # someone in the admin panel is running (see
-                # relay_client.set_light_red_if_auto()).
+                # detected. (The traffic light is not touched here: the
+                # controller turns it red by itself when its time is up,
+                # or an operator does in manual mode.)
                 if last_vehicle_box is not None and (now - last_seen_at) > WORKER_PRESENCE_GAP_SECONDS:
                     last_vehicle_box = None
                     last_detection_id = None
-                    relay_client.set_light_red_if_auto(line_number)
 
                 if not result or not result["success"]:
                     candidate_plate = None

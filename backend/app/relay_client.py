@@ -51,24 +51,6 @@ def set_light(line_number: int, color: str, seconds: float | None = None) -> boo
         return False
 
 
-def set_light_red_if_auto(line_number: int) -> bool:
-    """Called by the worker the moment it decides a truck has left a
-    line - only actually reverts the light if it's currently green
-    because of an automatic (Save-triggered) trigger, never a manual
-    one someone's deliberately testing."""
-    try:
-        resp = httpx.post(
-            f"{RELAY_SERVICE_URL}/light/{line_number}/red-if-auto",
-            headers={"X-API-Key": RELAY_API_KEY},
-            timeout=TIMEOUT_SECONDS,
-        )
-        resp.raise_for_status()
-        return True
-    except httpx.HTTPError:
-        log.warning("could not clear line %s's auto-green light (relay service unreachable)", line_number)
-        return False
-
-
 def get_all_lights() -> dict:
     """Returns {line_number: "red" | "green"} for every line the Pi
     knows about, or {} if it couldn't be reached - callers should treat
