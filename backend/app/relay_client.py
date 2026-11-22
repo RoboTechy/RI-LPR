@@ -2,7 +2,7 @@
 Talks to the Raspberry Pi relay-control service (../pi-relay-service/)
 that switches each line's physical traffic light between red and
 green. That service is a separate device on the plant network, not a
-container here - see PI_RELAY_SERVICE_URL in config.py.
+container here - see RELAY_SERVICE_URL in config.py.
 
 Every call here is best-effort: the light is a physical convenience
 signal for the driver, not a system of record, so a Pi/network hiccup
@@ -14,7 +14,7 @@ import logging
 
 import httpx
 
-from .config import PI_RELAY_API_KEY, PI_RELAY_SERVICE_URL
+from .config import RELAY_API_KEY, RELAY_SERVICE_URL
 
 log = logging.getLogger(__name__)
 
@@ -39,9 +39,9 @@ def set_light(line_number: int, color: str, seconds: float | None = None) -> boo
         if color == "green" and seconds is not None:
             params["seconds"] = seconds
         resp = httpx.post(
-            f"{PI_RELAY_SERVICE_URL}/light/{line_number}/{color}",
+            f"{RELAY_SERVICE_URL}/light/{line_number}/{color}",
             params=params,
-            headers={"X-API-Key": PI_RELAY_API_KEY},
+            headers={"X-API-Key": RELAY_API_KEY},
             timeout=TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
@@ -58,8 +58,8 @@ def set_light_red_if_auto(line_number: int) -> bool:
     one someone's deliberately testing."""
     try:
         resp = httpx.post(
-            f"{PI_RELAY_SERVICE_URL}/light/{line_number}/red-if-auto",
-            headers={"X-API-Key": PI_RELAY_API_KEY},
+            f"{RELAY_SERVICE_URL}/light/{line_number}/red-if-auto",
+            headers={"X-API-Key": RELAY_API_KEY},
             timeout=TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
@@ -75,8 +75,8 @@ def get_all_lights() -> dict:
     a missing line_number as "unknown", not assume red."""
     try:
         resp = httpx.get(
-            f"{PI_RELAY_SERVICE_URL}/lights",
-            headers={"X-API-Key": PI_RELAY_API_KEY},
+            f"{RELAY_SERVICE_URL}/lights",
+            headers={"X-API-Key": RELAY_API_KEY},
             timeout=TIMEOUT_SECONDS,
         )
         resp.raise_for_status()

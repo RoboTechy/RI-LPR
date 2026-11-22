@@ -63,9 +63,24 @@ WORKER_FAILED_READ_INTERVAL_SECONDS = float(os.environ.get("WORKER_FAILED_READ_I
 # the admin panel's per-camera "تست ارتباط" button.
 WORKER_INTERNAL_URL = os.environ.get("WORKER_INTERNAL_URL", "http://worker:9000")
 
-# The Raspberry Pi relay-control service (../pi-relay-service/) - a
-# separate physical device on the plant network, not a container in
-# this compose file. Controls each line's traffic light (red/green)
-# via a relay board. Set the real IP once it's deployed.
+# The traffic-light controller: a separate physical device on the plant
+# network, not a container in this compose file. Either the Raspberry Pi
+# (../pi-relay-service/) or an Arduino Mega + Ethernet shield
+# (../arduino-relay/) - both answer the same HTTP commands. Both can stay
+# configured in .env; RELAY_DEVICE picks the one in use ("pi" - the
+# default, so an existing .env keeps working unchanged - or "arduino").
+RELAY_DEVICE = (os.environ.get("RELAY_DEVICE") or "pi").strip().lower()
+
 PI_RELAY_SERVICE_URL = os.environ.get("PI_RELAY_SERVICE_URL", "http://192.168.201.50:8080")
 PI_RELAY_API_KEY = os.environ.get("PI_RELAY_API_KEY", "change-me-relay-key")
+ARDUINO_RELAY_SERVICE_URL = os.environ.get("ARDUINO_RELAY_SERVICE_URL", "http://192.168.201.41:8080")
+ARDUINO_RELAY_API_KEY = os.environ.get("ARDUINO_RELAY_API_KEY", "change-me-relay-key")
+
+if RELAY_DEVICE == "arduino":
+    RELAY_SERVICE_URL = ARDUINO_RELAY_SERVICE_URL
+    RELAY_API_KEY = ARDUINO_RELAY_API_KEY
+elif RELAY_DEVICE == "pi":
+    RELAY_SERVICE_URL = PI_RELAY_SERVICE_URL
+    RELAY_API_KEY = PI_RELAY_API_KEY
+else:
+    raise ValueError(f"RELAY_DEVICE must be 'pi' or 'arduino', not {RELAY_DEVICE!r}")

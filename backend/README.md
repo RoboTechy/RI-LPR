@@ -197,7 +197,10 @@ Each line's traffic light is in one of two modes, set on the
 
 The lights can be driven by either a Raspberry Pi (`../pi-relay-service/`)
 or an Arduino Mega + Ethernet shield (`../arduino-relay/`) - both answer
-the same commands, so which one is used is just `PI_RELAY_SERVICE_URL`.
+the same commands. Put the address and key of both in `.env`
+(`PI_RELAY_*` and `ARDUINO_RELAY_*`); the `RELAY_DEVICE` line (`pi` or
+`arduino`) picks the one in use, so swapping devices is one line, then
+`docker compose up -d api worker` (a plain `restart` does not re-read `.env`).
 
 See `../pi-relay-service/README.md` for the Pi-side setup (wiring, GPIO
 pin mapping, systemd service) and `PI_RELAY_SERVICE_URL`/

@@ -83,16 +83,19 @@ curl -X POST -H "X-API-Key: <key>" "http://<arduino-ip>:8080/light/1/green?secon
 # pin 22 is 5 V for 5 s, then 0 V
 ```
 
-Then point the backend at it - in `backend/.env` on the server:
+Then point the backend at it - in `backend/.env` on the server, keep the
+Pi's lines as they are and add/fill the Arduino's:
 
 ```
-PI_RELAY_SERVICE_URL=http://<arduino-ip>:8080
-PI_RELAY_API_KEY=<the same key as API_KEY in the sketch>
+RELAY_DEVICE=arduino
+ARDUINO_RELAY_SERVICE_URL=http://<arduino-ip>:8080
+ARDUINO_RELAY_API_KEY=<the same key as API_KEY in the sketch>
 ```
 
-and run `docker compose restart api`. The admin panel's دوربین‌ها page
-then shows each line's colour. To go back to the Raspberry Pi, put its
-address back and restart `api` again.
+and apply it with `docker compose up -d api worker` (a plain `restart` does
+not re-read `.env`). The admin panel's دوربین‌ها page then shows each
+line's colour. To go back to the Raspberry Pi, set `RELAY_DEVICE=pi` and
+run the same command again - nothing else changes.
 
 ## Notes
 
