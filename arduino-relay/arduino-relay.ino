@@ -53,6 +53,10 @@ const bool GREEN_IS_HIGH = true;
 // Used when a green command carries no ?seconds=.
 const unsigned long DEFAULT_GREEN_SECONDS = 30;
 
+// 1: when a request is rejected because of its key, also print both keys on
+// the Serial Monitor (USB only) - to find a typo. Set back to 0 afterwards.
+#define DEBUG_AUTH 1
+
 // 1: reset the board by itself if the program ever hangs (needs a Mega
 // bootloader that supports the watchdog - leave 0 if unsure).
 #define USE_WATCHDOG 0
@@ -169,6 +173,9 @@ void handleRequest(EthernetClient &c) {
 
   // headers: only X-API-Key matters
   bool authOk = false;
+  int receivedKeyLen = -1;  // -1: the request had no X-API-Key header
+  char receivedKey[64];
+  receivedKey[0] = 0;
   char hdr[100];
   for (uint8_t n = 0; n < 24; n++) {
     if (!readLine(c, hdr, sizeof(hdr))) break;
@@ -179,6 +186,9 @@ void handleRequest(EthernetClient &c) {
       size_t l = strlen(v);
       while (l > 0 && (v[l - 1] == ' ' || v[l - 1] == '\t')) v[--l] = 0;
       authOk = strcmp(v, API_KEY) == 0;
+      receivedKeyLen = (int)l;
+      strncpy(receivedKey, v, sizeof(receivedKey) - 1);
+      receivedKey[sizeof(receivedKey) - 1] = 0;
     }
   }
 
@@ -200,6 +210,17 @@ void handleRequest(EthernetClient &c) {
   }
 
   if (!authOk) {
+    Serial.print(F("401 key rejected: received length "));
+    Serial.print(receivedKeyLen);
+    Serial.print(F(", expected length "));
+    Serial.println((int)strlen(API_KEY));
+#if DEBUG_AUTH
+    Serial.print(F("  received: ["));
+    Serial.print(receivedKey);
+    Serial.print(F("]  expected: ["));
+    Serial.print(API_KEY);
+    Serial.println(']');
+#endif
     respond(c, 401, "{\"detail\":\"invalid API key\"}");
     return;
   }
@@ -292,6 +313,8 @@ void setup() {
   Ethernet.begin(MAC, LOCAL_IP, DNS_SERVER, GATEWAY, SUBNET);
   server.begin();
 
+  Serial.print(F("API key length: "));
+  Serial.println((int)strlen(API_KEY));
   Serial.print(F("RI-LPR relay ready at "));
   Serial.print(Ethernet.localIP());
   Serial.print(':');
